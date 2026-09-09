@@ -37,6 +37,15 @@ class SchemaContractTests(unittest.TestCase):
         self.assertIn("proposal_kind", proposal["required"])
         self.assertIn("idempotency_key", action["required"])
 
+    def test_shipment_schemas_exist(self):
+        installation = self.load_schema("installation.schema.json")
+        onboarding = self.load_schema("onboarding-answers.schema.json")
+        self.assertTrue({"state_schema_version", "package_version", "installation_id"}.issubset(installation["required"]))
+        self.assertFalse(installation["additionalProperties"])
+        self.assertFalse(onboarding["additionalProperties"])
+        self.assertIn("desired_state", onboarding["properties"])
+        self.assertIn("success_definition", onboarding["properties"])
+
     def test_protocol_boundaries_exist(self):
         integration = (ROOT / "protocol" / "INTEGRATION-CADENCE.md").read_text(encoding="utf-8")
         self.assertIn("refuses standalone fallback", integration)
@@ -47,22 +56,31 @@ class SchemaContractTests(unittest.TestCase):
         self.assertIn("does not call `host.notify_user` automatically", runtime)
         self.assertIn("Every criterion starts `unverified`", runtime)
         self.assertIn("Cognition proposals cannot become `ActionRequest` objects implicitly", runtime)
+        shipment = (ROOT / "protocol" / "INSTALLATION-ONBOARDING.md").read_text(encoding="utf-8")
+        self.assertIn("The installer MUST NOT", shipment)
+        self.assertIn("There is no destructive implicit migration path", shipment)
+        self.assertIn("Only answers supplied through an explicit onboarding apply operation", shipment)
 
 
 class VersionParityTests(unittest.TestCase):
-    def test_manifest_package_and_module_versions_are_in_sync(self):
+    def test_manifest_package_module_and_installer_versions_are_in_sync(self):
         brain = (ROOT / "BRAIN.yaml").read_text(encoding="utf-8")
         pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
         module = (ROOT / "engine" / "aiverse_brain" / "__init__.py").read_text(encoding="utf-8")
-        self.assertIn('version: "0.1.0-alpha.5"', brain)
-        self.assertIn('version = "0.1.0a5"', pyproject)
-        self.assertIn('__version__ = "0.1.0a5"', module)
+        installer = (ROOT / "engine" / "aiverse_brain" / "installation.py").read_text(encoding="utf-8")
+        self.assertIn('version: "0.1.0-alpha.6"', brain)
+        self.assertIn('state_schema_version: "1.0"', brain)
+        self.assertIn('version = "0.1.0a6"', pyproject)
+        self.assertIn('__version__ = "0.1.0a6"', module)
+        self.assertIn('PACKAGE_VERSION = "0.1.0a6"', installer)
+        self.assertIn('STATE_SCHEMA_VERSION = "1.0"', installer)
 
-    def test_readme_preserves_repository_separation(self):
+    def test_readme_preserves_repository_separation_and_install_safety(self):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
-        self.assertIn("nothing has been installed into or merged with AI-Verse OS or AI-Verse Memory", readme)
+        self.assertIn("Nothing in this work has been installed into or merged with AI-Verse OS or AI-Verse Memory", readme)
         self.assertIn("reports a blocker rather than editing `AI-VERSE.yaml` implicitly", readme)
-        self.assertIn("does **not** call `host.notify_user` automatically", readme)
+        self.assertIn("does **not** call `host.notify_user` automatically", (ROOT / "protocol" / "RUNTIME-PIPELINE.md").read_text(encoding="utf-8"))
+        self.assertIn("No state is written by that command", readme)
 
 
 if __name__ == "__main__":
