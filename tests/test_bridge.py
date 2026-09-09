@@ -18,6 +18,7 @@ from aiverse_brain.bridge import (
     JSONSubprocessBridge,
     adapter_doctor,
 )
+from aiverse_brain.errors import PermissionDenied
 from aiverse_brain.installation import initialize
 from aiverse_brain.models import Scope
 from aiverse_brain.runtime import BrainRuntime
@@ -27,7 +28,6 @@ BRIDGE_SCRIPT = r'''
 import json
 import os
 import sys
-import time
 
 request = json.loads(sys.stdin.read())
 operation = request.get("operation")
@@ -120,6 +120,33 @@ class BridgeConfigTests(BridgeTestCase):
                 "api_key": "must-not-be-stored",
             })
 
+    def test_common_credential_command_flags_are_rejected(self):
+        with self.assertRaises(BridgeConfigError):
+            BridgeConfig.from_dict({
+                "schema_version": "1.0",
+                "name": "bad-secret-arg",
+                "transport": "json-subprocess",
+                "command": ["provider-cli", "--api-key=plaintext-secret"],
+            })
+
+    def test_duplicate_env_names_are_rejected(self):
+        with self.assertRaises(BridgeConfigError):
+            BridgeConfig(
+                name="bad-env",
+                command=(sys.executable, "bridge.py"),
+                env_names=("API_KEY", "API_KEY"),
+            ).validate()
+
+    def test_duplicate_json_config_keys_are_rejected(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "adapter.json"
+            path.write_text(
+                '{"name":"first","name":"second","transport":"json-subprocess","command":["python","x.py"]}',
+                encoding="utf-8",
+            )
+            with self.assertRaises(BridgeConfigError):
+                BridgeConfig.load(str(path))
+
 
 class BridgeProtocolTests(BridgeTestCase):
     def test_handshake_and_host_operations(self):
@@ -139,6 +166,18 @@ class BridgeProtocolTests(BridgeTestCase):
             reasoner = BridgeReasonerAdapter(self.make_bridge(temp))
             self.assertEqual(reasoner.model_id, "test-model")
             self.assertEqual(reasoner.reason({"purpose": "orient"}, {"scope": "operator"}), [])
+
+    def test_reasoner_requires_advertised_reason_operation(self):
+        script = r'''
+import json, sys
+request = json.loads(sys.stdin.read())
+result = {"adapter_id": "limited", "protocol_version": "1.0", "operations": ["read_context"], "idempotency_supported": False}
+print(json.dumps({"protocol": request["protocol"], "request_id": request["request_id"], "ok": True, "result": result}))
+'''
+        with tempfile.TemporaryDirectory() as temp:
+            reasoner = BridgeReasonerAdapter(self.make_bridge(temp, script=script))
+            with self.assertRaises(BridgeProtocolError):
+                reasoner.reason({}, {})
 
     def test_parent_environment_is_filtered_unless_name_is_explicitly_allowed(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -171,7 +210,7 @@ print(json.dumps({"protocol": request["protocol"], "request_id": request["reques
     def test_output_limit_is_enforced(self):
         script = r'''
 import json, sys
-request = json.loads(sys.stdin.read())
+json.loads(sys.stdin.read())
 sys.stdout.write("x" * 100000)
 sys.stdout.flush()
 '''
@@ -185,6 +224,17 @@ sys.stdout.flush()
 import json, sys
 request = json.loads(sys.stdin.read())
 print(json.dumps({"protocol": request["protocol"], "request_id": "wrong", "ok": True, "result": {}}))
+'''
+        with tempfile.TemporaryDirectory() as temp:
+            bridge = self.make_bridge(temp, script=script)
+            with self.assertRaises(BridgeProtocolError):
+                bridge.call("describe", {})
+
+    def test_duplicate_response_keys_are_rejected(self):
+        script = r'''
+import json, sys
+request = json.loads(sys.stdin.read())
+print('{"protocol":"%s","request_id":"%s","ok":true,"ok":false,"result":{}}' % (request["protocol"], request["request_id"]))
 '''
         with tempfile.TemporaryDirectory() as temp:
             bridge = self.make_bridge(temp, script=script)
@@ -233,7 +283,7 @@ class BridgeActionBoundaryTests(BridgeTestCase):
                 within_budget=True,
                 reversible=False,
             )
-            with self.assertRaises(Exception):
+            with self.assertRaises(PermissionDenied):
                 runtime.execute_action(
                     request,
                     host=host,
