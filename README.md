@@ -117,7 +117,7 @@ ai-verse-brain onboard /path/to/agent/root --answers brain-onboarding.json --app
 
 ## Use Claude, Codex or Hermes as the reasoner
 
-The built-in vendor wrappers are **reasoner-only**. They do not become Brain's host/action executor and cannot bypass Brain permissions.
+The built-in vendor wrappers are **reasoner-only**. They do not become Brain's host/action executor and cannot bypass Brain permissions. Advertising an operation never grants authority; Brain's deterministic policy and action boundary remain authoritative.
 
 Check the installed CLI wrapper first:
 
