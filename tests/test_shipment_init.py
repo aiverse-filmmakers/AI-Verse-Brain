@@ -18,7 +18,7 @@ class ShipmentInitializationTests(unittest.TestCase):
             self.assertTrue(plan.safe_to_apply)
             self.assertEqual(plan.mode.value, "standalone")
             self.assertFalse((root / ".ai-verse-brain").exists())
-            self.assertIn(str(root / ".ai-verse-brain"), plan.creates)
+            self.assertIn(str((root / ".ai-verse-brain").resolve()), plan.creates)
 
     def test_standalone_initialize_is_idempotent(self):
         with tempfile.TemporaryDirectory() as temp:
