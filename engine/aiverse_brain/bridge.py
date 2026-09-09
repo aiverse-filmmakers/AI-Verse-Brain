@@ -8,7 +8,7 @@ import re
 import subprocess
 import threading
 import time
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 from uuid import uuid4
 
 from .errors import BrainError, ValidationError
@@ -17,6 +17,10 @@ BRIDGE_PROTOCOL = "ai-verse-brain-bridge/1.0"
 BRIDGE_VERSION = "1.0"
 _ALLOWED_TOP_LEVEL_RESPONSE = {"protocol", "request_id", "ok", "result", "error"}
 _ENV_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_SENSITIVE_ARG_RE = re.compile(
+    r"^--?(?:api[-_]?key|access[-_]?token|token|secret|password|authorization|bearer)(?:=|$)",
+    re.IGNORECASE,
+)
 _BASE_ENV_NAMES = {
     "PATH", "PATHEXT", "SYSTEMROOT", "WINDIR", "HOME", "USERPROFILE",
     "TMP", "TEMP", "TMPDIR", "LANG", "LC_ALL", "VIRTUAL_ENV",
@@ -47,6 +51,37 @@ class BridgeRemoteError(BridgeError):
     pass
 
 
+def _unique_object(pairs: List[Tuple[str, Any]]) -> Dict[str, Any]:
+    result: Dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise BridgeProtocolError(f"duplicate JSON object key is not allowed: {key}")
+        result[key] = value
+    return result
+
+
+def _strict_json_loads(text: str, *, config: bool = False) -> Any:
+    try:
+        return json.loads(text, object_pairs_hook=_unique_object)
+    except BridgeProtocolError:
+        if config:
+            raise BridgeConfigError("adapter config contains duplicate JSON object keys")
+        raise
+    except Exception as exc:
+        if config:
+            raise BridgeConfigError(f"invalid adapter config JSON: {exc}") from exc
+        raise BridgeProtocolError("adapter stdout is not one valid JSON response object") from exc
+
+
+def _reject_sensitive_command_args(command: Tuple[str, ...]) -> None:
+    for item in command:
+        if _SENSITIVE_ARG_RE.match(item):
+            raise BridgeConfigError(
+                "credential-bearing command flags are forbidden; keep credentials in the host credential store "
+                "or pass only explicitly allowlisted environment-variable names"
+            )
+
+
 @dataclass(frozen=True)
 class BridgeConfig:
     name: str
@@ -71,6 +106,7 @@ class BridgeConfig:
                 raise BridgeConfigError("adapter command arguments must be non-empty strings")
             if "\x00" in item:
                 raise BridgeConfigError("adapter command arguments may not contain NUL bytes")
+        _reject_sensitive_command_args(self.command)
         if not isinstance(self.timeout_seconds, (int, float)) or isinstance(self.timeout_seconds, bool):
             raise BridgeConfigError("timeout_seconds must be numeric")
         if not 0.1 <= float(self.timeout_seconds) <= 600:
@@ -82,6 +118,8 @@ class BridgeConfig:
         ):
             if not isinstance(value, int) or isinstance(value, bool) or not minimum <= value <= maximum:
                 raise BridgeConfigError(f"{name} must be an integer between {minimum} and {maximum}")
+        if len(set(self.env_names)) != len(self.env_names):
+            raise BridgeConfigError("env_names may not contain duplicates")
         for env_name in self.env_names:
             if not isinstance(env_name, str) or not _ENV_NAME_RE.match(env_name):
                 raise BridgeConfigError(f"invalid environment variable name: {env_name!r}")
@@ -139,9 +177,10 @@ class BridgeConfig:
     def load(cls, path: str) -> "BridgeConfig":
         config_path = Path(path).expanduser().resolve()
         try:
-            data = json.loads(config_path.read_text(encoding="utf-8"))
-        except Exception as exc:
+            text = config_path.read_text(encoding="utf-8")
+        except OSError as exc:
             raise BridgeConfigError(f"cannot read adapter config {config_path}: {exc}") from exc
+        data = _strict_json_loads(text, config=True)
         return cls.from_dict(data, base_dir=config_path.parent)
 
 
@@ -321,10 +360,7 @@ class JSONSubprocessBridge:
         if returncode != 0:
             suffix = f": {stderr_text}" if stderr_text else ""
             raise BridgeProcessError(f"adapter exited with status {returncode}{suffix}")
-        try:
-            response = json.loads(stdout.decode("utf-8"))
-        except Exception as exc:
-            raise BridgeProtocolError("adapter stdout is not one valid JSON response object") from exc
+        response = _strict_json_loads(stdout.decode("utf-8"))
         if not isinstance(response, dict):
             raise BridgeProtocolError("adapter response must be an object")
         extras = sorted(set(response) - _ALLOWED_TOP_LEVEL_RESPONSE)
@@ -358,8 +394,17 @@ class BridgeReasonerAdapter:
     def __init__(self, bridge: JSONSubprocessBridge):
         self.bridge = bridge
         self.model_id = bridge.config.model_id or bridge.config.name
+        self._description: Optional[BridgeDescription] = None
+
+    @property
+    def description(self) -> BridgeDescription:
+        if self._description is None:
+            self._description = self.bridge.describe()
+        return self._description
 
     def reason(self, request: Dict[str, Any], context: Dict[str, Any]) -> Any:
+        if "reason" not in self.description.operations:
+            raise BridgeProtocolError("adapter does not advertise required operation: reason")
         if not isinstance(request, dict) or not isinstance(context, dict):
             raise ValidationError("reason request/context must be objects")
         return self.bridge.call("reason", {"request": request, "context": context})
