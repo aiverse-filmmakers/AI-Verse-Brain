@@ -2,8 +2,8 @@ schema_version: "0.1"
 architecture: intent-cognition-initiative-learning
 package:
   name: AI-Verse Brain
-  version: "0.1.0-alpha.4"
-  status: phase-4-cognition-action-boundary
+  version: "0.1.0-alpha.5"
+  status: phase-4-runtime-neutral-pipeline
   python: ">=3.9"
 
 purpose: "Universal intelligence layer for persistent intent, initiative, bounded execution, verification, learning, and controlled self-improvement."
@@ -27,6 +27,10 @@ principles:
   external_side_effects_require_replay_safety: true
   uncertain_side_effects_never_auto_retry: true
   side_effect_receipt_references_survive_runtime_loss: true
+  host_context_is_ephemeral_data: true
+  model_output_never_executes_actions_directly: true
+  model_created_objectives_start_unverified: true
+  whole_tick_receipt_covers_reasoning_and_application: true
 
 modes:
   - ai-verse-os-v2
@@ -76,6 +80,14 @@ implemented_mechanisms:
   - durable_side_effect_receipt_references
   - idempotent_side_effect_coordination
   - uncertain_outcome_replay_blocking_and_reconciliation
+  - bounded_ephemeral_context_assembly
+  - strict_reasoner_output_parsing
+  - deterministic_proposal_application
+  - whole_tick_trigger_receipts
+  - model_objective_verification_floor_and_budget_caps
+  - weak_reflection_cannot_self_validate
+  - surface_decisions_without_implicit_user_notification
+  - explicit_action_path_separate_from_cognition
 
 non_ownership:
   - workspace_identity
