@@ -104,7 +104,7 @@ class VersionParityTests(unittest.TestCase):
         self.assertIn("does not install or own a scheduler", readme)
         self.assertIn("does not call `host.notify_user` automatically", runtime)
         self.assertIn("No state is written by that command", readme)
-        self.assertIn("advertising an operation never grants authority", readme)
+        self.assertIn("advertising an operation never grants authority", readme.lower())
         self.assertIn("Never put credentials", security)
         self.assertIn("Permission is hereby granted", license_text)
         self.assertIn("clean-machine", release)
