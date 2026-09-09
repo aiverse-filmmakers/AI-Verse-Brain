@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aiverse.dev/schemas/brain/onboarding-answers.schema.json",
+  "title": "AI-Verse Brain Onboarding Answers",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "desired_state": {"type": "string", "minLength": 1},
+    "success_definition": {"type": "string", "minLength": 1},
+    "goals": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "boundaries": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "constraints": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "practices": {"type": "array", "items": {"type": "string", "minLength": 1}}
+  }
+}
