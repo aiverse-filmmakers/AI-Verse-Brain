@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Intent payload",
+  "type": "object",
+  "required": ["subtype", "statement"],
+  "properties": {
+    "subtype": {"enum": ["desired_state", "goal", "boundary", "constraint", "success_definition"]},
+    "statement": {"type": "string", "minLength": 1},
+    "priority": {"type": ["string", "number", "null"]},
+    "target_date": {"type": ["string", "null"]},
+    "success_refs": {"type": "array", "items": {"type": "string"}}
+  },
+  "additionalProperties": true
+}

@@ -1,0 +1,104 @@
+schema_version: "0.1"
+architecture: intent-cognition-initiative-learning
+package:
+  name: AI-Verse Brain
+  version: "0.1.0-alpha.5"
+  status: phase-4-runtime-neutral-pipeline
+  python: ">=3.9"
+
+purpose: "Universal intelligence layer for persistent intent, initiative, bounded execution, verification, learning, and controlled self-improvement."
+
+principles:
+  one_canonical_owner_per_state: true
+  explicit_user_intent_outranks_inference: true
+  current_state_outranks_history: true
+  proactivity_is_not_authority: true
+  deterministic_bookkeeping: true
+  material_success_starts_unverified: true
+  unfinished_is_not_progress: true
+  staged_learning: true
+  user_sovereignty: true
+  silence_is_valid: true
+  cross_scope_access_is_explicit: true
+  provenance_for_durable_inference: true
+  incompatible_host_never_falls_back_silently: true
+  integration_planning_is_read_only: true
+  model_reasoning_is_advisory: true
+  external_side_effects_require_replay_safety: true
+  uncertain_side_effects_never_auto_retry: true
+  side_effect_receipt_references_survive_runtime_loss: true
+  host_context_is_ephemeral_data: true
+  model_output_never_executes_actions_directly: true
+  model_created_objectives_start_unverified: true
+  whole_tick_receipt_covers_reasoning_and_application: true
+
+modes:
+  - ai-verse-os-v2
+  - standalone
+
+native_paths:
+  operator_state: operator/brain/
+  workspace_state: workspaces/{workspace}/brain/
+  runtime: runtime/ai-verse-brain/
+
+standalone_paths:
+  state: .ai-verse-brain/
+  runtime: .ai-verse-brain/runtime/
+
+durable_operational_state:
+  action_receipt_refs: "<scope-brain-state>/action-receipts/"
+  rule: "Store minimal replay/reconciliation metadata only; do not duplicate external content or OS/Memory truth."
+
+canonical_kinds:
+  - intent
+  - practice
+  - gap
+  - opportunity
+  - initiative
+  - objective
+  - model_belief
+  - evaluation
+  - learning
+  - strategy_rule
+  - policy
+
+implemented_mechanisms:
+  - direction_proposals_and_dedupe
+  - attention_cooldown_and_delivery_budget
+  - objective_progress_and_stall_control
+  - evaluation_application_and_independence_levels
+  - derived_belief_freshness
+  - evidence_gated_learning_and_strategy_promotion
+  - read_only_host_detection_and_path_contracts
+  - incompatible_ai_verse_fail_closed
+  - read_only_integration_planner
+  - cadence_request_planner_without_scheduler_ownership
+  - read_only_doctor_and_scope_audit
+  - model_neutral_cognition_request_and_proposal_contracts
+  - deterministic_tick_planning
+  - approval_bound_action_requests
+  - durable_side_effect_receipt_references
+  - idempotent_side_effect_coordination
+  - uncertain_outcome_replay_blocking_and_reconciliation
+  - bounded_ephemeral_context_assembly
+  - strict_reasoner_output_parsing
+  - deterministic_proposal_application
+  - whole_tick_trigger_receipts
+  - model_objective_verification_floor_and_budget_caps
+  - weak_reflection_cannot_self_validate
+  - surface_decisions_without_implicit_user_notification
+  - explicit_action_path_separate_from_cognition
+
+non_ownership:
+  - workspace_identity
+  - os_current_context
+  - operator_profile_as_a_whole
+  - general_historical_memory
+  - reusable_domain_knowledge
+  - secrets
+  - connections
+  - capability_implementation
+  - scheduler_implementation
+  - external_side_effect_execution
+
+runtime_is_disposable: true

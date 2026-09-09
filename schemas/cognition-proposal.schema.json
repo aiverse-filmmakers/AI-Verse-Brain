@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Cognition proposal envelope",
+  "type": "object",
+  "required": ["request_id", "purpose", "scope", "proposal_kind", "payload", "confidence", "source_model"],
+  "properties": {
+    "request_id": {"type": "string", "minLength": 1},
+    "purpose": {"enum": ["orient", "gap_analysis", "opportunity_discovery", "objective_planning", "reflection", "strategy_review", "evaluation"]},
+    "scope": {"type": "string", "pattern": "^(operator|workspace:[a-z0-9][a-z0-9._-]{0,127})$"},
+    "proposal_kind": {"enum": ["gap", "opportunity", "initiative", "objective", "model_belief", "learning"]},
+    "payload": {"type": "object"},
+    "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+    "source_model": {"type": "string", "minLength": 1},
+    "rationale": {"type": ["string", "null"]}
+  },
+  "additionalProperties": false
+}

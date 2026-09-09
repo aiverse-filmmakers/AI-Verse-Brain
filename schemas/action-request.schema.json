@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Action request envelope",
+  "type": "object",
+  "required": ["request_id", "action_class", "scope", "operation", "parameters", "idempotency_key", "in_scope", "within_budget", "reversible", "created_at"],
+  "properties": {
+    "request_id": {"type": "string", "minLength": 1},
+    "action_class": {"enum": ["read_local", "read_connected", "write_local_reversible", "modify_canonical_state", "external_write_reversible", "send_message", "publish_publicly", "spend_money", "create_commit_or_pr", "merge_or_deploy", "delete_data", "change_permissions", "security_sensitive", "high_stakes_domain_action"]},
+    "scope": {"type": "string", "pattern": "^(operator|workspace:[a-z0-9][a-z0-9._-]{0,127})$"},
+    "operation": {"type": "string", "minLength": 1},
+    "parameters": {"type": "object"},
+    "idempotency_key": {"type": "string", "minLength": 1},
+    "in_scope": {"type": "boolean"},
+    "within_budget": {"type": "boolean"},
+    "reversible": {"type": "boolean"},
+    "reason": {"type": "string"},
+    "created_at": {"type": "string"}
+  },
+  "additionalProperties": false
+}

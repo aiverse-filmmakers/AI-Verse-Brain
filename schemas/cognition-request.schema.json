@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Cognition request envelope",
+  "type": "object",
+  "required": ["request_id", "purpose", "scope", "context_refs", "evidence_refs", "constraints", "output_contract", "created_at"],
+  "properties": {
+    "request_id": {"type": "string", "minLength": 1},
+    "purpose": {"enum": ["orient", "gap_analysis", "opportunity_discovery", "objective_planning", "reflection", "strategy_review", "evaluation"]},
+    "scope": {"type": "string", "pattern": "^(operator|workspace:[a-z0-9][a-z0-9._-]{0,127})$"},
+    "context_refs": {"type": "array", "items": {"type": "string"}},
+    "evidence_refs": {"type": "array", "items": {"type": "string"}},
+    "constraints": {"type": "array", "items": {"type": "string"}},
+    "output_contract": {"type": "object"},
+    "created_at": {"type": "string"}
+  },
+  "additionalProperties": false
+}

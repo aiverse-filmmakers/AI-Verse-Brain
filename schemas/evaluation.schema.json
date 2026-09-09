@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Evaluation payload",
+  "type": "object",
+  "required": ["target_ref", "verification_level", "independence", "verdicts", "overall", "evaluator_id"],
+  "properties": {
+    "target_ref": {"type": "string", "minLength": 1},
+    "verification_level": {"enum": ["V0", "V1", "V2", "V3"]},
+    "independence": {"enum": ["same_context", "fresh_context", "independent_model", "external_authoritative"]},
+    "verdicts": {"type": "array", "items": {"$ref": "#/$defs/verdict"}},
+    "overall": {"enum": ["passed", "failed", "insufficient_evidence", "mixed"]},
+    "evaluator_id": {"type": "string", "minLength": 1},
+    "builder_context_id": {"type": ["string", "null"]},
+    "evaluator_context_id": {"type": ["string", "null"]},
+    "notes": {"type": ["string", "null"]}
+  },
+  "$defs": {
+    "verdict": {
+      "type": "object",
+      "required": ["criterion_id", "status", "evidence_refs"],
+      "properties": {
+        "criterion_id": {"type": "string", "minLength": 1},
+        "status": {"enum": ["unverified", "passed", "failed", "insufficient_evidence", "not_applicable"]},
+        "evidence_refs": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+        "rationale": {"type": "string"}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": true
+}

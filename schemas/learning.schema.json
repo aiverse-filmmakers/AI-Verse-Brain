@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Learning payload",
+  "type": "object",
+  "required": ["statement", "evidence_strength"],
+  "properties": {
+    "statement": {"type": "string", "minLength": 1},
+    "evidence_strength": {"enum": ["single_observation", "corroborated", "controlled", "user_confirmed"]},
+    "causal_claim": {"enum": ["none", "plausible", "controlled_support"]},
+    "applicability": {"type": "array", "items": {"type": "string"}},
+    "independent_observations": {"type": "integer", "minimum": 0},
+    "controlled_evaluations": {"type": "integer", "minimum": 0},
+    "contradiction_count": {"type": "integer", "minimum": 0},
+    "user_confirmed": {"type": "boolean"},
+    "evaluation_refs": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+    "strategy_ref": {"type": ["string", "null"]},
+    "candidate_strategy_ref": {"type": ["string", "null"]}
+  },
+  "additionalProperties": true
+}

@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Brain policy payload",
+  "type": "object",
+  "properties": {
+    "proactivity": {"enum": ["P0", "P1", "P2", "P3", "P4"]},
+    "action_policy": {"type": "object", "additionalProperties": {"enum": ["deny", "ask_every_time", "allow_within_scope", "allow_within_budget", "allow_if_reversible"]}},
+    "attention": {"type": "object"},
+    "resources": {"type": "object"},
+    "verification_floor": {"enum": ["V0", "V1", "V2", "V3"]}
+  },
+  "additionalProperties": true
+}
