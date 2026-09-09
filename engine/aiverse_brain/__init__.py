@@ -9,6 +9,9 @@ from .integration import HostMode, inspect_host, native_path_contract, plan_inte
 from .models import BrainObject, EvidenceRef, Scope
 from .orchestrator import TickPlanner
 from .policy import ProactivityLevel
+from .proposal_apply import AppliedProposal, ProposalApplier
+from .reasoner import ContextAssembler, ContextBundle, ReasonerAdapter, parse_reasoner_output
+from .runtime import BrainRuntime, SurfaceItem, TickRunResult
 
 __all__ = [
     "ActionExecutor", "ActionRequest", "ApprovalGrant",
@@ -17,6 +20,9 @@ __all__ = [
     "CognitionProposal", "CognitionPurpose", "CognitionRequest", "validate_proposal",
     "HostMode", "inspect_host", "native_path_contract", "plan_integration", "run_doctor",
     "TickPlanner", "ProactivityLevel",
+    "AppliedProposal", "ProposalApplier",
+    "ContextAssembler", "ContextBundle", "ReasonerAdapter", "parse_reasoner_output",
+    "BrainRuntime", "SurfaceItem", "TickRunResult",
 ]
 
-__version__ = "0.1.0a4"
+__version__ = "0.1.0a5"
