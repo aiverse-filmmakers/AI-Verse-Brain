@@ -62,6 +62,11 @@ class BrainRuntime:
         self.applier = ProposalApplier(self.controller)
         self.action_executor = ActionExecutor(self.controller.layout.root, self.policy)
 
+    def _refresh_policy(self, scope: str) -> BrainPolicy:
+        self.policy = self.controller.refresh_policy(scope)
+        self.action_executor.gate.policy = self.policy
+        return self.policy
+
     @staticmethod
     def _reasoner_id(reasoner: ReasonerAdapter) -> str:
         value = getattr(reasoner, "model_id", "")
@@ -114,6 +119,7 @@ class BrainRuntime:
         A process crash leaves a claimed receipt for explicit stale-claim recovery.
         """
 
+        self._refresh_policy(trigger.scope.value)
         model_id = self._reasoner_id(reasoner)
         self.controller.trigger_ledger.claim(trigger)
         try:
@@ -173,6 +179,7 @@ class BrainRuntime:
     ) -> ActionOutcome:
         """Explicit action path. No cognition proposal can call this implicitly."""
 
+        self._refresh_policy(request.scope.value)
         return self.action_executor.execute(
             request,
             host,

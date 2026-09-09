@@ -8,7 +8,7 @@ from uuid import uuid4
 
 from .bridge import BridgeConfig, adapter_doctor
 from .cadence import Trigger
-from .cadence_hooks import render_cadence_hooks
+from .cadence_hooks import effective_cadence_policy, render_cadence_hooks
 from .cadence_plan import plan_cadence
 from .controller import BrainController
 from .doctor import run_doctor
@@ -19,7 +19,6 @@ from .local_host import ReadOnlyContextHost
 from .migration import apply_migration, plan_migration
 from .models import Scope
 from .onboarding import OnboardingService
-from .policy import BrainPolicy, ProactivityLevel
 from .runtime import BrainRuntime
 from .vendor import vendor_bridge_config, vendor_reasoner
 
@@ -82,17 +81,18 @@ def build_parser() -> argparse.ArgumentParser:
     plan = sub.add_parser("plan-integration", help="read-only integration plan; performs no installation")
     plan.add_argument("root", nargs="?", default=".")
 
-    cadence = sub.add_parser("plan-cadence", help="emit scheduler requests without scheduling them")
+    cadence = sub.add_parser("plan-cadence", help="emit scheduler requests from the persisted effective policy")
+    cadence.add_argument("root", nargs="?", default=".")
     cadence.add_argument("--scope", default="operator")
-    cadence.add_argument("--proactivity", type=int, choices=range(0, 5), default=2)
-    cadence.add_argument("--background-ticks-per-day", type=int, default=4)
+    cadence.add_argument("--proactivity", type=int, choices=range(0, 5), default=None)
+    cadence.add_argument("--background-ticks-per-day", type=int, default=None)
 
     hooks = sub.add_parser("cadence-hooks", help="emit portable scheduler argv hooks; Brain does not install a scheduler")
     hooks.add_argument("root", nargs="?", default=".")
     hooks.add_argument("--vendor", choices=["claude", "codex", "hermes"], required=True)
     hooks.add_argument("--scope", default="operator")
-    hooks.add_argument("--proactivity", type=int, choices=range(0, 5), default=2)
-    hooks.add_argument("--background-ticks-per-day", type=int, default=4)
+    hooks.add_argument("--proactivity", type=int, choices=range(0, 5), default=None)
+    hooks.add_argument("--background-ticks-per-day", type=int, default=None)
     hooks.add_argument("--context-file")
     hooks.add_argument("--model")
     hooks.add_argument("--provider")
@@ -242,8 +242,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             return 0 if plan.safe_to_apply else 3
 
         if args.command == "plan-cadence":
-            policy = BrainPolicy(proactivity=ProactivityLevel(args.proactivity))
-            policy.resources.max_background_ticks_per_day = args.background_ticks_per_day
+            policy = effective_cadence_policy(
+                str(Path(args.root).resolve()),
+                scope=args.scope,
+                proactivity=args.proactivity,
+                background_ticks_per_day=args.background_ticks_per_day,
+            )
             requests = plan_cadence(policy, args.scope)
             _print([item.to_dict() for item in requests])
             return 0
