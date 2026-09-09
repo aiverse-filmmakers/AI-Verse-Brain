@@ -43,6 +43,10 @@ class SchemaContractTests(unittest.TestCase):
         boundary = (ROOT / "protocol" / "COGNITION-ACTION-BOUNDARY.md").read_text(encoding="utf-8")
         self.assertIn("model response is never itself canonical Brain state", boundary)
         self.assertIn("automatic retries remain forbidden", boundary)
+        runtime = (ROOT / "protocol" / "RUNTIME-PIPELINE.md").read_text(encoding="utf-8")
+        self.assertIn("does not call `host.notify_user` automatically", runtime)
+        self.assertIn("Every criterion starts `unverified`", runtime)
+        self.assertIn("Cognition proposals cannot become `ActionRequest` objects implicitly", runtime)
 
 
 class VersionParityTests(unittest.TestCase):
@@ -50,14 +54,15 @@ class VersionParityTests(unittest.TestCase):
         brain = (ROOT / "BRAIN.yaml").read_text(encoding="utf-8")
         pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
         module = (ROOT / "engine" / "aiverse_brain" / "__init__.py").read_text(encoding="utf-8")
-        self.assertIn('version: "0.1.0-alpha.4"', brain)
-        self.assertIn('version = "0.1.0a4"', pyproject)
-        self.assertIn('__version__ = "0.1.0a4"', module)
+        self.assertIn('version: "0.1.0-alpha.5"', brain)
+        self.assertIn('version = "0.1.0a5"', pyproject)
+        self.assertIn('__version__ = "0.1.0a5"', module)
 
     def test_readme_preserves_repository_separation(self):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         self.assertIn("nothing has been installed into or merged with AI-Verse OS or AI-Verse Memory", readme)
         self.assertIn("reports a blocker rather than editing `AI-VERSE.yaml` implicitly", readme)
+        self.assertIn("does **not** call `host.notify_user` automatically", readme)
 
 
 if __name__ == "__main__":
