@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Evaluation payload",
+  "type": "object",
+  "required": ["target_ref", "verification_level", "verdicts"],
+  "properties": {
+    "target_ref": {"type": "string", "minLength": 1},
+    "verification_level": {"enum": ["V0", "V1", "V2", "V3"]},
+    "independence": {"enum": ["same_context", "fresh_context", "independent_model", "external_authoritative"]},
+    "verdicts": {"type": "array", "items": {"type": "object"}},
+    "overall": {"enum": ["passed", "failed", "insufficient_evidence", "mixed"]}
+  },
+  "additionalProperties": true
+}

@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Practice payload",
+  "type": "object",
+  "required": ["statement", "health"],
+  "properties": {
+    "statement": {"type": "string", "minLength": 1},
+    "health": {"enum": ["UNKNOWN", "HEALTHY", "AT_RISK", "DEGRADED", "BREACHED"]},
+    "cadence": {"type": ["string", "null"]},
+    "success_refs": {"type": "array", "items": {"type": "string"}}
+  },
+  "additionalProperties": true
+}

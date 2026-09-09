@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Opportunity payload",
+  "type": "object",
+  "required": ["gap_refs", "hypothesis", "confidence"],
+  "properties": {
+    "gap_refs": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+    "hypothesis": {"type": "string", "minLength": 1},
+    "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+    "cooldown_fingerprint": {"type": ["string", "null"]},
+    "expires_at": {"type": ["string", "null"]}
+  },
+  "additionalProperties": true
+}

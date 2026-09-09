@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aiverse.local/schemas/common.schema.json",
+  "title": "AI-Verse Brain common object envelope",
+  "type": "object",
+  "required": ["schema_version", "id", "kind", "scope", "status", "revision", "created_at", "updated_at", "created_by", "updated_by", "source_refs", "evidence_refs", "payload"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "id": {"type": "string", "minLength": 1, "pattern": "^[^/\\\\]+$"},
+    "kind": {"enum": ["intent", "practice", "gap", "opportunity", "initiative", "objective", "model_belief", "evaluation", "learning", "strategy_rule", "policy"]},
+    "scope": {"type": "string", "pattern": "^(operator|workspace:[a-z0-9][a-z0-9._-]{0,127})$"},
+    "status": {"type": "string", "minLength": 1},
+    "revision": {"type": "integer", "minimum": 0},
+    "created_at": {"type": "string"},
+    "updated_at": {"type": "string"},
+    "created_by": {"type": "string"},
+    "updated_by": {"type": "string"},
+    "source_refs": {"type": "array", "items": {"type": "string"}},
+    "evidence_refs": {"type": "array", "items": {"$ref": "#/$defs/evidence"}},
+    "supersedes": {"type": ["string", "null"]},
+    "superseded_by": {"type": ["string", "null"]},
+    "payload": {"type": "object"}
+  },
+  "$defs": {
+    "evidence": {
+      "type": "object",
+      "required": ["ref", "evidence_class"],
+      "properties": {
+        "ref": {"type": "string", "minLength": 1},
+        "evidence_class": {"enum": ["USER_CONFIRMATION", "CANONICAL_STATE", "DIRECT_MEASUREMENT", "AUTHORITATIVE_EXTERNAL", "INDEPENDENT_EVALUATION", "CORROBORATED_HISTORY", "SINGLE_OBSERVATION", "MODEL_INFERENCE"]},
+        "claim": {"type": "string"},
+        "observed_at": {"type": "string"},
+        "expires_at": {"type": "string"},
+        "scope": {"type": "string"},
+        "integrity": {"type": "string"}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

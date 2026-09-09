@@ -1,0 +1,63 @@
+schema_version: "0.1"
+architecture: intent-cognition-initiative-learning
+package:
+  name: AI-Verse Brain
+  version: "0.1.0-alpha.1"
+  status: phase-4-core
+  python: ">=3.9"
+
+purpose: "Universal intelligence layer for persistent intent, initiative, bounded execution, verification, learning, and controlled self-improvement."
+
+principles:
+  one_canonical_owner_per_state: true
+  explicit_user_intent_outranks_inference: true
+  current_state_outranks_history: true
+  proactivity_is_not_authority: true
+  deterministic_bookkeeping: true
+  material_success_starts_unverified: true
+  unfinished_is_not_progress: true
+  staged_learning: true
+  user_sovereignty: true
+  silence_is_valid: true
+  cross_scope_access_is_explicit: true
+  provenance_for_durable_inference: true
+
+modes:
+  - ai-verse-os-v2
+  - standalone
+
+native_paths:
+  operator_state: operator/brain/
+  workspace_state: workspaces/{workspace}/brain/
+  runtime: runtime/ai-verse-brain/
+
+standalone_paths:
+  state: .ai-verse-brain/
+  runtime: .ai-verse-brain/runtime/
+
+canonical_kinds:
+  - intent
+  - practice
+  - gap
+  - opportunity
+  - initiative
+  - objective
+  - model_belief
+  - evaluation
+  - learning
+  - strategy_rule
+  - policy
+
+non_ownership:
+  - workspace_identity
+  - os_current_context
+  - operator_profile_as_a_whole
+  - general_historical_memory
+  - reusable_domain_knowledge
+  - secrets
+  - connections
+  - capability_implementation
+  - scheduler_implementation
+  - external_side_effect_execution
+
+runtime_is_disposable: true

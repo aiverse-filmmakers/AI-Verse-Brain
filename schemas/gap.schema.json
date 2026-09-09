@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Gap payload",
+  "type": "object",
+  "required": ["desired_state_refs", "current_state_refs", "interpretation"],
+  "properties": {
+    "desired_state_refs": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+    "current_state_refs": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+    "interpretation": {"type": "string", "minLength": 1},
+    "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+    "freshness": {"enum": ["fresh", "stale", "unknown", "contradicted"]}
+  },
+  "additionalProperties": true
+}

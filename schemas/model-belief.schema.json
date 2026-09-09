@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Model belief payload",
+  "type": "object",
+  "required": ["domain", "statement", "epistemic_state", "confidence"],
+  "properties": {
+    "domain": {"enum": ["user_model", "agent_model", "world_model"]},
+    "statement": {"type": "string", "minLength": 1},
+    "epistemic_state": {"enum": ["known", "inferred", "assumed", "unknown", "contradicted", "stale"]},
+    "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+    "last_reviewed": {"type": ["string", "null"]},
+    "contradiction_refs": {"type": "array", "items": {"type": "string"}}
+  },
+  "additionalProperties": true
+}
