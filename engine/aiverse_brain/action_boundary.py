@@ -8,9 +8,10 @@ import json
 import os
 from pathlib import Path
 import tempfile
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Mapping, Optional
 from uuid import uuid4
 
+from .action_snapshot import freeze_json, thaw_json
 from .authority import AuthorityTier
 from .errors import DuplicateAction, PermissionDenied, UncertainActionOutcome, ValidationError
 from .models import Scope, utc_now
@@ -36,7 +37,7 @@ class ActionRequest:
     action_class: str
     scope: Scope
     operation: str
-    parameters: Dict[str, Any]
+    parameters: Mapping[str, Any]
     idempotency_key: str
     in_scope: bool = True
     within_budget: bool = True
@@ -50,10 +51,11 @@ class ActionRequest:
             raise ValidationError(f"unknown action class: {self.action_class}")
         if not self.operation:
             raise ValidationError("action operation is required")
-        if not isinstance(self.parameters, dict):
+        if not isinstance(self.parameters, Mapping):
             raise ValidationError("action parameters must be an object")
         if not self.idempotency_key:
             raise ValidationError("idempotency_key is required for every action request")
+        object.__setattr__(self, "parameters", freeze_json(self.parameters))
 
     @property
     def is_side_effect(self) -> bool:
@@ -64,9 +66,14 @@ class ActionRequest:
             "action_class": self.action_class,
             "scope": self.scope.value,
             "operation": self.operation,
-            "parameters": self.parameters,
+            "parameters": thaw_json(self.parameters),
+            "idempotency_key": self.idempotency_key,
+            "in_scope": self.in_scope,
+            "within_budget": self.within_budget,
+            "reversible": self.reversible,
+            "reason": self.reason,
         }
-        raw = json.dumps(data, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        raw = json.dumps(data, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
     def to_dict(self) -> Dict[str, Any]:
@@ -75,7 +82,7 @@ class ActionRequest:
             "action_class": self.action_class,
             "scope": self.scope.value,
             "operation": self.operation,
-            "parameters": dict(self.parameters),
+            "parameters": thaw_json(self.parameters),
             "idempotency_key": self.idempotency_key,
             "in_scope": self.in_scope,
             "within_budget": self.within_budget,
@@ -92,8 +99,29 @@ class ApprovalGrant:
     scope: str
     action_class: str
     granted_by: str
+    request_fingerprint: str = ""
     authority: AuthorityTier = AuthorityTier.EXPLICIT_USER
     expires_at: Optional[str] = None
+
+    @classmethod
+    def for_request(
+        cls,
+        request: ActionRequest,
+        *,
+        granted_by: str,
+        authority: AuthorityTier = AuthorityTier.EXPLICIT_USER,
+        expires_at: Optional[str] = None,
+    ) -> "ApprovalGrant":
+        return cls(
+            request_id=request.request_id,
+            idempotency_key=request.idempotency_key,
+            scope=request.scope.value,
+            action_class=request.action_class,
+            granted_by=granted_by,
+            request_fingerprint=request.fingerprint(),
+            authority=authority,
+            expires_at=expires_at,
+        )
 
     def assert_valid_for(self, request: ActionRequest) -> None:
         if self.authority != AuthorityTier.EXPLICIT_USER:
@@ -102,11 +130,20 @@ class ApprovalGrant:
             raise PermissionDenied("approval does not match action request")
         if self.scope != request.scope.value or self.action_class != request.action_class:
             raise PermissionDenied("approval scope/action class does not match request")
+        if not self.request_fingerprint or self.request_fingerprint != request.fingerprint():
+            raise PermissionDenied("approval fingerprint does not match the exact action request")
         if not self.granted_by:
             raise PermissionDenied("approval grant must identify the granting user")
         if self.expires_at:
             text = self.expires_at[:-1] + "+00:00" if self.expires_at.endswith("Z") else self.expires_at
-            if datetime.fromisoformat(text).astimezone(timezone.utc) <= datetime.now(timezone.utc):
+            try:
+                expires = datetime.fromisoformat(text)
+                if expires.tzinfo is None:
+                    raise ValueError("timezone required")
+                expires = expires.astimezone(timezone.utc)
+            except ValueError as exc:
+                raise PermissionDenied("action approval has an invalid expiry timestamp") from exc
+            if expires <= datetime.now(timezone.utc):
                 raise PermissionDenied("action approval has expired")
 
 
@@ -140,6 +177,11 @@ class ActionGate:
         approval: Optional[ApprovalGrant] = None,
         host_idempotency_supported: bool = False,
     ) -> ActionAuthorization:
+        # A supplied grant is security-sensitive input. Validate it on every route,
+        # even when policy would otherwise authorize, deny, or take an exception path.
+        if approval is not None:
+            approval.assert_valid_for(request)
+
         decision = self.policy.action_decision(request.action_class)
         if decision == "deny":
             return ActionAuthorization(ActionDisposition.DENIED, "action class denied by policy")
@@ -147,7 +189,6 @@ class ActionGate:
         if decision == "ask_every_time":
             if approval is None:
                 return ActionAuthorization(ActionDisposition.APPROVAL_REQUIRED, "explicit approval required")
-            approval.assert_valid_for(request)
         elif decision == "allow_within_scope" and not request.in_scope:
             return ActionAuthorization(ActionDisposition.DENIED, "action is outside authorized scope")
         elif decision == "allow_within_budget" and not request.within_budget:
@@ -233,6 +274,18 @@ class ActionExecutor:
             duplicate=duplicate,
         )
 
+    @staticmethod
+    def _assert_dispatch_binding(
+        request: ActionRequest,
+        *,
+        expected_fingerprint: str,
+        approval: Optional[ApprovalGrant],
+    ) -> None:
+        if request.fingerprint() != expected_fingerprint:
+            raise PermissionDenied("action request changed after authorization")
+        if approval is not None:
+            approval.assert_valid_for(request)
+
     def execute(
         self,
         request: ActionRequest,
@@ -242,6 +295,11 @@ class ActionExecutor:
         host_idempotency_supported: bool = False,
     ) -> ActionOutcome:
         fingerprint = request.fingerprint()
+        # Validate supplied approval before duplicate/exception handling so a stale or
+        # unrelated grant can never be used as harmless-looking bypass input.
+        if approval is not None:
+            approval.assert_valid_for(request)
+
         with self.ledger.lock.acquire(request.idempotency_key):
             previous = self.ledger.read(request)
             if previous:
@@ -272,6 +330,24 @@ class ActionExecutor:
                 "operation": request.operation,
                 "claimed_at": utc_now(),
             })
+
+            try:
+                # Final time-of-check/time-of-use binding immediately before dispatch.
+                self._assert_dispatch_binding(
+                    request,
+                    expected_fingerprint=fingerprint,
+                    approval=approval,
+                )
+            except PermissionDenied:
+                self.ledger.write(request, {
+                    "ledger_status": "failed",
+                    "request_id": request.request_id,
+                    "request_fingerprint": fingerprint,
+                    "safe_to_retry": True,
+                    "effect_occurred": False,
+                    "recorded_at": utc_now(),
+                })
+                raise
 
             try:
                 response = host.request_action(request.to_dict())

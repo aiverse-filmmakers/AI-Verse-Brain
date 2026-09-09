@@ -289,11 +289,8 @@ class BridgeActionBoundaryTests(BridgeTestCase):
                     host=host,
                     host_idempotency_supported=host.idempotency_supported,
                 )
-            approval = ApprovalGrant(
-                request_id=request.request_id,
-                idempotency_key=request.idempotency_key,
-                scope=request.scope.value,
-                action_class=request.action_class,
+            approval = ApprovalGrant.for_request(
+                request,
                 granted_by="user",
                 authority=AuthorityTier.EXPLICIT_USER,
             )

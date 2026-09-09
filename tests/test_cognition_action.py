@@ -100,11 +100,8 @@ class ActionBoundaryTests(unittest.TestCase):
         )
 
     def approval(self, request):
-        return ApprovalGrant(
-            request_id=request.request_id,
-            idempotency_key=request.idempotency_key,
-            scope=request.scope.value,
-            action_class=request.action_class,
+        return ApprovalGrant.for_request(
+            request,
             granted_by="user",
             authority=AuthorityTier.EXPLICIT_USER,
         )
