@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 from typing import Optional, Sequence
 
+from .bridge import BridgeConfig, adapter_doctor
 from .cadence_plan import plan_cadence
 from .controller import BrainController
 from .doctor import run_doctor
@@ -28,6 +29,9 @@ def build_parser() -> argparse.ArgumentParser:
     onboard.add_argument("--scope", default="operator")
     onboard.add_argument("--answers", help="path to a JSON answers file")
     onboard.add_argument("--apply", action="store_true", help="apply explicit answers as confirmed Brain intent/practices")
+
+    adapter = sub.add_parser("adapter-doctor", help="validate and handshake with a JSON subprocess adapter")
+    adapter.add_argument("config", help="path to adapter JSON config; credential values must remain outside this file")
 
     doctor = sub.add_parser("doctor", help="read-only host, installation, and Brain-state health checks")
     doctor.add_argument("root", nargs="?", default=".")
@@ -80,6 +84,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 })
                 return 0
             _print(service.apply(answers, args.scope).to_dict())
+            return 0
+
+        if args.command == "adapter-doctor":
+            config = BridgeConfig.load(args.config)
+            _print(adapter_doctor(config))
             return 0
 
         if args.command == "doctor":
