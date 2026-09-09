@@ -2,8 +2,8 @@ schema_version: "0.1"
 architecture: intent-cognition-initiative-learning
 package:
   name: AI-Verse Brain
-  version: "0.1.0-alpha.6"
-  status: phase-5-shipment-initialization-onboarding
+  version: "0.1.0-alpha.7"
+  status: phase-5-universal-adapter-bridge
   python: ">=3.9"
 
 purpose: "Universal intelligence layer for persistent intent, initiative, bounded execution, verification, learning, and controlled self-improvement."
@@ -35,6 +35,10 @@ principles:
   installer_writes_only_brain_owned_paths: true
   state_upgrades_fail_closed_without_explicit_migration: true
   onboarding_confirms_only_explicit_user_answers: true
+  adapters_are_transports_not_authority_sources: true
+  adapter_subprocesses_never_use_shell: true
+  adapter_io_is_bounded: true
+  adapter_credentials_are_not_stored: true
 
 modes:
   - ai-verse-os-v2
@@ -101,6 +105,15 @@ implemented_mechanisms:
   - native_install_requires_existing_brain_extension_slot
   - adaptive_explicit_intent_onboarding
   - installation_and_onboarding_doctor_checks
+  - universal_json_subprocess_bridge
+  - adapter_capability_handshake
+  - adapter_request_response_correlation
+  - adapter_timeout_and_io_limits
+  - filtered_adapter_environment
+  - credential_command_flag_rejection
+  - bridge_reasoner_adapter
+  - bridge_host_adapter
+  - adapter_doctor
 
 non_ownership:
   - workspace_identity
@@ -113,5 +126,6 @@ non_ownership:
   - capability_implementation
   - scheduler_implementation
   - external_side_effect_execution
+  - vendor_model_runtime
 
 runtime_is_disposable: true
