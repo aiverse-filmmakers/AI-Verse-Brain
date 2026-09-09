@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aiverse.dev/schemas/brain/installation.schema.json",
+  "title": "AI-Verse Brain Installation Marker",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "state_schema_version",
+    "package_version",
+    "mode",
+    "installation_id",
+    "installed_at"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "state_schema_version": {"type": "string", "pattern": "^[0-9]+(\\.[0-9]+)*$"},
+    "package_version": {"type": "string", "minLength": 1},
+    "mode": {"enum": ["standalone", "ai-verse-os-v2"]},
+    "installation_id": {"type": "string", "minLength": 1},
+    "installed_at": {"type": "string", "minLength": 1}
+  }
+}
