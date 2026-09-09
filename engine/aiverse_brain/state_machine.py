@@ -1,7 +1,7 @@
 from typing import Dict, Set
 
 from .authority import AuthorityTier, assert_goal_confirmation, assert_policy_mutation
-from .errors import TransitionError
+from .errors import AuthorityError, TransitionError
 
 _TRANSITIONS: Dict[str, Dict[str, Set[str]]] = {
     "intent": {
@@ -19,6 +19,10 @@ _TRANSITIONS: Dict[str, Dict[str, Set[str]]] = {
         "ACTIVE": {"PAUSED", "RETIRED"},
         "PAUSED": {"ACTIVE", "RETIRED"},
         "RETIRED": set(),
+    },
+    "gap": {
+        "ACTIVE": {"RESOLVED", "INVALIDATED"},
+        "RESOLVED": set(), "INVALIDATED": set(),
     },
     "opportunity": {
         "DETECTED": {"DISMISSED", "EXPIRED", "WATCHING", "QUALIFIED"},
@@ -51,6 +55,15 @@ _TRANSITIONS: Dict[str, Dict[str, Set[str]]] = {
         "FAILED": {"READY", "CANCELLED", "SUPERSEDED"},
         "PASSED": set(), "CANCELLED": set(), "SUPERSEDED": set(),
     },
+    "model_belief": {
+        "ACTIVE": {"CONTRADICTED", "RETIRED"},
+        "CONTRADICTED": {"ACTIVE", "RETIRED"},
+        "RETIRED": set(),
+    },
+    "evaluation": {
+        "RECORDED": {"SUPERSEDED"},
+        "SUPERSEDED": set(),
+    },
     "learning": {
         "OBSERVATION": {"HYPOTHESIS"},
         "HYPOTHESIS": {"PATTERN", "REJECTED"},
@@ -65,6 +78,10 @@ _TRANSITIONS: Dict[str, Dict[str, Set[str]]] = {
         "ACTIVE": {"RETIRED", "ROLLED_BACK"},
         "RETIRED": {"ACTIVE"},
         "ROLLED_BACK": set(), "REJECTED": set(),
+    },
+    "policy": {
+        "ACTIVE": {"SUPERSEDED"},
+        "SUPERSEDED": set(),
     },
 }
 
@@ -86,6 +103,8 @@ _INITIAL = {
 def assert_creation(kind: str, status: str, source: AuthorityTier) -> None:
     if kind not in _INITIAL:
         raise TransitionError(f"unknown kind: {kind}")
+    if source == AuthorityTier.EXTERNAL_DATA:
+        raise AuthorityError("external data cannot directly create Brain control state")
     if kind == "policy":
         assert_policy_mutation(source)
     if kind in {"intent", "practice"} and status == "CONFIRMED":
@@ -100,8 +119,15 @@ def allowed_transitions(kind: str, status: str) -> Set[str]:
 
 
 def assert_transition(kind: str, current: str, target: str, source: AuthorityTier) -> None:
+    if source == AuthorityTier.EXTERNAL_DATA:
+        raise AuthorityError("external data cannot directly drive Brain lifecycle transitions")
     allowed = allowed_transitions(kind, current)
     if target not in allowed:
         raise TransitionError(f"invalid {kind} transition: {current} -> {target}")
     if kind in {"intent", "practice"} and current == "PROPOSED" and target == "CONFIRMED":
         assert_goal_confirmation(source)
+    if kind == "policy":
+        assert_policy_mutation(source)
+    if kind == "model_belief" and current == "CONTRADICTED" and target == "ACTIVE":
+        if source > AuthorityTier.VERIFIED_EVIDENCE:
+            raise AuthorityError("reactivating a contradicted belief requires verified evidence or stronger authority")

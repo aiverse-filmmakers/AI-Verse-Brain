@@ -58,6 +58,15 @@ class ResourcePolicy:
     max_eval_runs_per_strategy_candidate: int = 8
     max_objective_attempts: int = 8
     max_parallel_objectives: int = 2
+    max_non_progressing_attempts_before_stall: int = 3
+
+
+@dataclass
+class EvolutionPolicy:
+    allow_e1_auto_promotion: bool = True
+    e1_min_evaluations: int = 1
+    e2_min_evaluations: int = 2
+    e2_requires_user_approval: bool = True
 
 
 @dataclass
@@ -66,13 +75,37 @@ class BrainPolicy:
     action_policy: Dict[str, str] = field(default_factory=lambda: dict(DEFAULT_ACTION_POLICY))
     attention: AttentionPolicy = field(default_factory=AttentionPolicy)
     resources: ResourcePolicy = field(default_factory=ResourcePolicy)
+    evolution: EvolutionPolicy = field(default_factory=EvolutionPolicy)
 
     def validate(self) -> None:
+        try:
+            ProactivityLevel(self.proactivity)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"invalid proactivity level: {self.proactivity!r}") from exc
         for action, decision in self.action_policy.items():
             if action not in ACTION_CLASSES:
                 raise ValueError(f"unknown action class: {action}")
             if decision not in DECISIONS:
                 raise ValueError(f"unknown permission decision: {decision}")
+        if self.attention.max_active_initiatives < 1:
+            raise ValueError("max_active_initiatives must be >= 1")
+        if self.attention.max_proactive_items_per_session < 0 or self.attention.max_interruptions_per_day < 0:
+            raise ValueError("attention delivery caps cannot be negative")
+        for name in ("minimum_interrupt_score", "minimum_surface_score"):
+            value = getattr(self.attention, name)
+            if not 0.0 <= value <= 1.0:
+                raise ValueError(f"{name} must be normalized to [0,1]")
+        if self.attention.minimum_interrupt_score < self.attention.minimum_surface_score:
+            raise ValueError("minimum_interrupt_score must be >= minimum_surface_score")
+        if self.attention.dismissal_cooldown_hours < 0 or self.attention.notification_cooldown_hours < 0:
+            raise ValueError("attention cooldowns cannot be negative")
+        for name, value in self.resources.__dict__.items():
+            if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+                raise ValueError(f"{name} must be an integer >= 1")
+        if self.evolution.e1_min_evaluations < 1 or self.evolution.e2_min_evaluations < 1:
+            raise ValueError("evolution evaluation minimums must be >= 1")
+        if self.evolution.e2_min_evaluations < self.evolution.e1_min_evaluations:
+            raise ValueError("E2 evaluation minimum cannot be weaker than E1")
 
     def action_decision(self, action_class: str) -> str:
         if action_class not in ACTION_CLASSES:

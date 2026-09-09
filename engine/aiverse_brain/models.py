@@ -13,10 +13,27 @@ _KINDS = {
     "intent", "practice", "gap", "opportunity", "initiative", "objective",
     "model_belief", "evaluation", "learning", "strategy_rule", "policy",
 }
+EVIDENCE_CLASSES = {
+    "USER_CONFIRMATION", "CANONICAL_STATE", "DIRECT_MEASUREMENT",
+    "AUTHORITATIVE_EXTERNAL", "INDEPENDENT_EVALUATION", "CORROBORATED_HISTORY",
+    "SINGLE_OBSERVATION", "MODEL_INFERENCE",
+}
 
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def parse_timestamp(value: str, *, field_name: str = "timestamp") -> datetime:
+    if not isinstance(value, str) or not value.strip():
+        raise ValidationError(f"{field_name} must be a non-empty ISO-8601 timestamp")
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValidationError(f"invalid {field_name}: {value!r}") from exc
+    if parsed.tzinfo is None:
+        raise ValidationError(f"{field_name} must include a timezone")
+    return parsed.astimezone(timezone.utc)
 
 
 @dataclass(frozen=True)
@@ -45,6 +62,18 @@ class EvidenceRef:
     expires_at: Optional[str] = None
     scope: Optional[str] = None
     integrity: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.ref, str) or not self.ref.strip():
+            raise ValidationError("evidence ref is required")
+        if self.evidence_class not in EVIDENCE_CLASSES:
+            raise ValidationError(f"unknown evidence class: {self.evidence_class}")
+        observed = parse_timestamp(self.observed_at, field_name="evidence.observed_at") if self.observed_at else None
+        expires = parse_timestamp(self.expires_at, field_name="evidence.expires_at") if self.expires_at else None
+        if observed and expires and expires < observed:
+            raise ValidationError("evidence expiry cannot precede observation time")
+        if self.scope is not None:
+            Scope(self.scope)
 
     def to_dict(self) -> Dict[str, Any]:
         return {k: v for k, v in {
@@ -79,12 +108,14 @@ class BrainObject:
     def __post_init__(self) -> None:
         if self.kind not in _KINDS:
             raise ValidationError(f"unknown Brain object kind: {self.kind}")
-        if not self.id or "/" in self.id or "\\" in self.id:
+        if not self.id or self.id in {".", ".."} or "/" in self.id or "\\" in self.id:
             raise ValidationError("object id must be non-empty and path-safe")
         if self.revision < 0:
             raise ValidationError("revision cannot be negative")
         if not isinstance(self.payload, dict):
             raise ValidationError("payload must be an object")
+        parse_timestamp(self.created_at, field_name="created_at")
+        parse_timestamp(self.updated_at, field_name="updated_at")
 
     def to_dict(self) -> Dict[str, Any]:
         return {

@@ -36,3 +36,15 @@ class PermissionDenied(BrainError):
 
 class PolicyViolation(BrainError):
     pass
+
+
+class DuplicateOpportunity(BrainError):
+    pass
+
+
+class CooldownActive(BrainError):
+    pass
+
+
+class EvaluationError(BrainError):
+    pass

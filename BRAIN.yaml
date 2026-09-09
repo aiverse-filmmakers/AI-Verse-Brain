@@ -2,8 +2,8 @@ schema_version: "0.1"
 architecture: intent-cognition-initiative-learning
 package:
   name: AI-Verse Brain
-  version: "0.1.0-alpha.1"
-  status: phase-4-core
+  version: "0.1.0-alpha.2"
+  status: phase-4-direction-action-learning-slice
   python: ">=3.9"
 
 purpose: "Universal intelligence layer for persistent intent, initiative, bounded execution, verification, learning, and controlled self-improvement."
@@ -47,6 +47,14 @@ canonical_kinds:
   - learning
   - strategy_rule
   - policy
+
+implemented_mechanisms:
+  - direction_proposals_and_dedupe
+  - attention_cooldown_and_delivery_budget
+  - objective_progress_and_stall_control
+  - evaluation_application_and_independence_levels
+  - derived_belief_freshness
+  - evidence_gated_learning_and_strategy_promotion
 
 non_ownership:
   - workspace_identity
