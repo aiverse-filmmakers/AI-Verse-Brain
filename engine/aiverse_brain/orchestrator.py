@@ -18,7 +18,7 @@ class TickPlan:
 
 
 class TickPlanner:
-    """Deterministically translates a cadence trigger into bounded cognition requests. It does not call a model or tool."""
+    """Deterministically translates cadence events into bounded cognition requests."""
 
     PURPOSES: Dict[str, List[CognitionPurpose]] = {
         "explicit": [CognitionPurpose.ORIENT],
@@ -72,11 +72,12 @@ class TickPlanner:
                     refs.append(f"brain:{kind}:{object_id}")
         return refs
 
-    def plan(self, trigger: Trigger) -> TickPlan:
+    def plan_from_orientation(self, trigger: Trigger, orientation: Orientation) -> TickPlan:
         Scope(trigger.scope.value)
-        orientation = self.controller.run_trigger(trigger)
+        if orientation.scope != trigger.scope.value:
+            raise ValueError("orientation scope does not match trigger scope")
         context_refs = self._orientation_refs(orientation) + list(trigger.source_refs) + list(trigger.payload_refs)
-        requests = []
+        requests: List[CognitionRequest] = []
         for purpose in self.PURPOSES.get(trigger.trigger_type, [CognitionPurpose.ORIENT]):
             requests.append(CognitionRequest(
                 purpose=purpose,
@@ -90,3 +91,18 @@ class TickPlanner:
                 output_contract={"proposal_kinds": list(self.OUTPUTS[purpose])},
             ))
         return TickPlan(trigger.trigger_type, trigger.scope.value, orientation, requests)
+
+    def plan_unclaimed(self, trigger: Trigger) -> TickPlan:
+        """Build a plan without touching trigger receipts.
+
+        BrainRuntime uses this after it claims the trigger so completion can cover
+        the whole bounded reasoning/application transaction rather than orientation only.
+        """
+
+        return self.plan_from_orientation(trigger, self.controller.orientation(trigger.scope.value))
+
+    def plan(self, trigger: Trigger) -> TickPlan:
+        """Simple planning path with an orientation-scoped trigger receipt."""
+
+        orientation = self.controller.run_trigger(trigger)
+        return self.plan_from_orientation(trigger, orientation)
