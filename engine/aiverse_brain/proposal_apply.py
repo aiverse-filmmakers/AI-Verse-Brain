@@ -14,13 +14,15 @@ from .ranking import Eligibility, NotificationClass, ScoreComponents
 from .verification import VerificationFactors, VerificationLevel, select_level
 
 
-_SCORE_FIELDS = {
+_SCORE_FIELDS = (
     "goal_alignment", "expected_impact", "urgency", "confidence",
     "strategic_leverage", "readiness_4c", "reversibility",
     "effort_cost", "attention_cost", "risk", "opportunity_cost",
-}
+)
+_SCORE_FIELD_SET = set(_SCORE_FIELDS)
 _FACTOR_FIELDS = set(VerificationFactors.__dataclass_fields__)
 _ACTIVE_INTENT = {"CONFIRMED", "ACTIVE"}
+_DESIRED_INTENT_SUBTYPES = {"desired_state", "goal", "success_definition"}
 _ACTIVE_INITIATIVE = {"ACCEPTED", "ACTIVE", "WAITING", "BLOCKED", "STALLED", "REVIEW"}
 
 
@@ -32,6 +34,15 @@ def _require_text(payload: Dict[str, Any], key: str) -> str:
     value = payload.get(key)
     if not isinstance(value, str) or not value.strip():
         raise ValidationError(f"{key} must be a non-empty string")
+    return value.strip()
+
+
+def _optional_text(payload: Dict[str, Any], key: str) -> Optional[str]:
+    value = payload.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise ValidationError(f"{key} must be a non-empty string when provided")
     return value.strip()
 
 
@@ -86,11 +97,64 @@ class ProposalApplier:
                 return obj
         return None
 
+    def _load_object(self, kind: str, scope: str, object_id: str, *, label: str) -> BrainObject:
+        try:
+            return self.controller.store.load(kind, scope, object_id)
+        except (FileNotFoundError, KeyError) as exc:
+            raise ValidationError(f"{label} does not resolve to canonical {kind} state: {object_id}") from exc
+
+    def _resolve_desired_ref(self, scope: str, ref: str) -> Tuple[str, BrainObject]:
+        if not isinstance(ref, str) or not ref.strip():
+            raise ValidationError("desired state ref must be a non-empty string")
+        text = ref.strip()
+        if text.startswith("brain:"):
+            text = text[6:]
+        if ":" not in text:
+            raise ValidationError("desired state ref must identify intent:<id>")
+        kind, object_id = text.split(":", 1)
+        if kind != "intent" or not object_id:
+            raise ValidationError("desired state ref must identify canonical intent:<id>")
+        obj = self._load_object("intent", scope, object_id, label="desired state ref")
+        if obj.status not in _ACTIVE_INTENT:
+            raise ValidationError(f"desired intent is not confirmed/active: {object_id} ({obj.status})")
+        subtype = obj.payload.get("subtype")
+        if subtype not in _DESIRED_INTENT_SUBTYPES:
+            raise ValidationError(
+                f"intent {object_id} is {subtype!r}, not a desired state/goal/success definition"
+            )
+        return f"brain:intent:{object_id}", obj
+
+    def _validate_current_ref(self, request: CognitionRequest, ref: str) -> str:
+        if not isinstance(ref, str) or not ref.strip():
+            raise ValidationError("current state ref must be a non-empty string")
+        text = ref.strip()
+        if text == "host:current":
+            return text
+        brain_text = text[6:] if text.startswith("brain:") else text
+        if brain_text.startswith("model_belief:"):
+            object_id = brain_text.split(":", 1)[1]
+            belief = self._load_object("model_belief", request.scope.value, object_id, label="current state ref")
+            if belief.status != "ACTIVE":
+                raise ValidationError(f"current-state belief is not active: {object_id} ({belief.status})")
+            if belief.payload.get("epistemic_state") in {"unknown", "stale", "contradicted"}:
+                raise ValidationError(
+                    f"current-state belief is not usable: {object_id} ({belief.payload.get('epistemic_state')})"
+                )
+            return f"brain:model_belief:{object_id}"
+        if text.startswith("brain:"):
+            raise ValidationError("current state ref may not reinterpret another Brain control object as observed state")
+        allowed = set(request.context_refs) | set(request.evidence_refs)
+        if text not in allowed:
+            raise ValidationError(f"current state ref was not present in bounded cognition context: {text}")
+        return text
+
     def _fresh_gap_evidence(self, gaps: Sequence[BrainObject]) -> bool:
         now = datetime.now(timezone.utc)
         for gap in gaps:
             for evidence in gap.evidence_refs:
-                if evidence.expires_at and parse_timestamp(evidence.expires_at, field_name="evidence.expires_at") <= now:
+                if evidence.expires_at and parse_timestamp(
+                    evidence.expires_at, field_name="evidence.expires_at"
+                ) <= now:
                     return False
         return True
 
@@ -98,8 +162,8 @@ class ProposalApplier:
         raw = payload.get("score_components")
         if not isinstance(raw, dict):
             raise ValidationError("opportunity.score_components must be an object")
-        extras = sorted(set(raw) - _SCORE_FIELDS)
-        missing = sorted((_SCORE_FIELDS - {"confidence"}) - set(raw))
+        extras = sorted(set(raw) - _SCORE_FIELD_SET)
+        missing = sorted((_SCORE_FIELD_SET - {"confidence"}) - set(raw))
         if extras:
             raise ValidationError("unknown score components: " + ", ".join(extras))
         if missing:
@@ -145,17 +209,22 @@ class ProposalApplier:
         kind, object_id = text.split(":", 1)
         if kind not in {"intent", "initiative"} or not object_id:
             raise ValidationError("serves_ref must identify intent:<id> or initiative:<id>")
-        obj = self.controller.store.load(kind, scope, object_id)
-        if kind == "intent" and obj.status not in _ACTIVE_INTENT:
-            raise ValidationError(f"objective cannot serve inactive intent {object_id} ({obj.status})")
+        obj = self._load_object(kind, scope, object_id, label="objective serves_ref")
+        if kind == "intent":
+            if obj.status not in _ACTIVE_INTENT:
+                raise ValidationError(f"objective cannot serve inactive intent {object_id} ({obj.status})")
+            if obj.payload.get("subtype") not in _DESIRED_INTENT_SUBTYPES:
+                raise ValidationError("objective may only serve a goal, desired state, or success definition")
         if kind == "initiative" and obj.status not in _ACTIVE_INITIATIVE:
             raise ValidationError(f"objective cannot serve unaccepted initiative {object_id} ({obj.status})")
         return kind, obj
 
     def _apply_gap(self, request: CognitionRequest, proposal: CognitionProposal) -> AppliedProposal:
         payload = proposal.payload
-        desired = _require_string_list(payload, "desired_state_refs")
-        current = _require_string_list(payload, "current_state_refs")
+        desired_raw = _require_string_list(payload, "desired_state_refs")
+        current_raw = _require_string_list(payload, "current_state_refs")
+        desired = [self._resolve_desired_ref(request.scope.value, ref)[0] for ref in desired_raw]
+        current = [self._validate_current_ref(request, ref) for ref in current_raw]
         interpretation = _require_text(payload, "interpretation")
         assumptions = _optional_string_list(payload, "assumptions")
         unknowns = _optional_string_list(payload, "unknowns")
@@ -183,10 +252,25 @@ class ProposalApplier:
         payload = proposal.payload
         gap_refs = _require_string_list(payload, "gap_refs")
         hypothesis = _require_text(payload, "hypothesis")
-        gaps = [self.controller.store.load("gap", request.scope.value, gap_id) for gap_id in gap_refs]
+        gaps = [self._load_object("gap", request.scope.value, gap_id, label="opportunity gap ref") for gap_id in gap_refs]
+        desired_state_linked = True
+        for gap in gaps:
+            if gap.status != "ACTIVE":
+                desired_state_linked = False
+                continue
+            desired_refs = gap.payload.get("desired_state_refs", [])
+            if not desired_refs:
+                desired_state_linked = False
+                continue
+            for ref in desired_refs:
+                try:
+                    self._resolve_desired_ref(request.scope.value, ref)
+                except ValidationError:
+                    desired_state_linked = False
+                    break
         components = self._score_components(payload, proposal.confidence)
         eligibility = Eligibility(
-            desired_state_linked=all(bool(gap.payload.get("desired_state_refs")) for gap in gaps),
+            desired_state_linked=desired_state_linked,
             scope_valid=True,
             permission_compatible=True,
             non_duplicate=True,
@@ -201,9 +285,9 @@ class ProposalApplier:
                 gap_refs=gap_refs,
                 hypothesis=hypothesis,
                 confidence=float(proposal.confidence),
-                mechanism=payload.get("mechanism"),
-                expires_at=payload.get("expires_at"),
-                dedupe_key=payload.get("dedupe_key"),
+                mechanism=_optional_text(payload, "mechanism"),
+                expires_at=_optional_text(payload, "expires_at"),
+                dedupe_key=_optional_text(payload, "dedupe_key"),
             ),
             components,
             eligibility=eligibility,
@@ -227,22 +311,31 @@ class ProposalApplier:
             opportunity_id = opportunity_id.split(":", 2)[2]
         elif opportunity_id.startswith("opportunity:"):
             opportunity_id = opportunity_id.split(":", 1)[1]
-        source = self.controller.store.load("opportunity", request.scope.value, opportunity_id)
+        source = self._load_object("opportunity", request.scope.value, opportunity_id, label="source opportunity")
         raw_components = source.payload.get("score_components")
         if not isinstance(raw_components, dict):
             raise ValidationError("qualified source opportunity lacks score components")
-        components = ScoreComponents(**{name: float(raw_components[name]) for name in _SCORE_FIELDS})
+        component_values: Dict[str, float] = {}
+        for name in _SCORE_FIELDS:
+            raw_value = raw_components.get(name)
+            if not isinstance(raw_value, (int, float)) or isinstance(raw_value, bool):
+                raise ValidationError(f"source opportunity score component {name} is invalid")
+            component_values[name] = float(raw_value)
+        components = ScoreComponents(**component_values)
+        components.validate()
+        serves_raw = _require_string_list(payload, "serves")
+        serves = [self._resolve_desired_ref(request.scope.value, ref)[0] for ref in serves_raw]
         obj = self.controller.direction.propose_initiative(
             request.scope.value,
             opportunity_id,
             InitiativeProposal(
-                serves=_require_string_list(payload, "serves"),
+                serves=serves,
                 gap_refs=_require_string_list(payload, "gap_refs"),
                 hypothesis=_require_text(payload, "hypothesis"),
                 outcome=_require_text(payload, "outcome"),
                 score_components=components,
-                next_action=payload.get("next_action"),
-                review_after=payload.get("review_after"),
+                next_action=_optional_text(payload, "next_action"),
+                review_after=_optional_text(payload, "review_after"),
                 invalidation_conditions=_optional_string_list(payload, "invalidation_conditions"),
             ),
             actor="reasoner:" + proposal.source_model,
@@ -263,7 +356,8 @@ class ProposalApplier:
         payload = proposal.payload
         outcome = _require_text(payload, "outcome")
         serves_ref = _require_text(payload, "serves_ref")
-        _, parent = self._resolve_serves_ref(request.scope.value, serves_ref)
+        serves_kind, parent = self._resolve_serves_ref(request.scope.value, serves_ref)
+        canonical_serves_ref = f"{serves_kind}:{parent.id}"
         raw_criteria = payload.get("criteria")
         if not isinstance(raw_criteria, list) or not raw_criteria:
             raise ValidationError("objective.criteria must be a non-empty list")
@@ -291,7 +385,7 @@ class ProposalApplier:
             predicate=lambda obj: (
                 obj.status not in {"PASSED", "CANCELLED", "SUPERSEDED"}
                 and _normalized(str(obj.payload.get("outcome", ""))) == _normalized(outcome)
-                and obj.payload.get("serves_ref") == serves_ref
+                and obj.payload.get("serves_ref") == canonical_serves_ref
             ),
         )
         if existing:
@@ -302,20 +396,20 @@ class ProposalApplier:
         if not isinstance(proposed_budget, dict):
             raise ValidationError("objective.budget must be an object")
         maximum = self.controller.policy.resources.max_objective_attempts
-        max_attempts = int(proposed_budget.get("max_attempts", maximum))
-        if max_attempts < 1:
-            raise ValidationError("objective budget max_attempts must be >= 1")
-        max_attempts = min(max_attempts, maximum)
+        raw_max_attempts = proposed_budget.get("max_attempts", maximum)
+        if not isinstance(raw_max_attempts, int) or isinstance(raw_max_attempts, bool) or raw_max_attempts < 1:
+            raise ValidationError("objective budget max_attempts must be an integer >= 1")
+        max_attempts = min(raw_max_attempts, maximum)
         default_stall = self.controller.policy.resources.max_non_progressing_attempts_before_stall
-        stall_threshold = int(payload.get("stall_threshold", default_stall))
-        if stall_threshold < 1:
-            raise ValidationError("objective stall_threshold must be >= 1")
-        stall_threshold = min(stall_threshold, default_stall)
+        raw_stall_threshold = payload.get("stall_threshold", default_stall)
+        if not isinstance(raw_stall_threshold, int) or isinstance(raw_stall_threshold, bool) or raw_stall_threshold < 1:
+            raise ValidationError("objective stall_threshold must be an integer >= 1")
+        stall_threshold = min(raw_stall_threshold, default_stall)
         obj = self.controller.create(
             "objective", request.scope.value, "QUEUED",
             {
                 "outcome": outcome,
-                "serves_ref": serves_ref,
+                "serves_ref": canonical_serves_ref,
                 "serves_object_id": parent.id,
                 "criteria": criteria,
                 "progress": "waiting",
@@ -345,12 +439,16 @@ class ProposalApplier:
             "model_belief", request.scope.value,
             predicate=lambda obj: (
                 obj.status == "ACTIVE"
+                and obj.payload.get("epistemic_state") not in {"unknown", "stale", "contradicted"}
                 and obj.payload.get("domain") == domain
                 and _normalized(str(obj.payload.get("statement", ""))) == _normalized(statement)
             ),
         )
         if existing:
-            return AppliedProposal("model_belief", existing.id, f"brain:model_belief:{existing.id}", existing.status, duplicate=True)
+            return AppliedProposal(
+                "model_belief", existing.id, f"brain:model_belief:{existing.id}",
+                existing.status, duplicate=True,
+            )
         domain_max = {"world_model": 86400, "agent_model": 604800, "user_model": 2592000}[domain]
         proposed_max = payload.get("max_age_seconds", domain_max)
         if not isinstance(proposed_max, int) or isinstance(proposed_max, bool) or proposed_max < 60:
