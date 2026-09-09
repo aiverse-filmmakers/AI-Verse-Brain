@@ -1,12 +1,12 @@
 # AI-Verse Brain
 
-**A universal intelligence layer for AI agents: persistent intent, goals, initiative, planning, reflection, verification, learning, and controlled self-improvement.**
+**A universal intelligence layer for AI agents: persistent intent, goals, initiative, planning, verification, learning, and controlled self-improvement.**
 
-AI-Verse Brain is designed to work with capable agents on its own and to integrate deeply with AI-Verse OS and AI-Verse Memory without becoming either of them.
+AI-Verse Brain gives capable agents a durable direction-and-control layer without turning the model into the source of authority. It can run standalone and can integrate with AI-Verse OS and AI-Verse Memory while remaining a separate repository and responsibility boundary.
 
-> Status: **Phase 5 alpha (`0.1.0-alpha.7`)**. The deterministic intelligence foundation is merged to `main`; this branch is adding shipment/installability. Development remains inside `AI-Verse-Brain`. Nothing in this work has been installed into or merged with AI-Verse OS or AI-Verse Memory.
+> Status: **public beta release candidate `0.1.0-beta.1`**.
 
-## Responsibility split
+## What Brain owns
 
 ```text
 Brain  = why / where / what next / how to verify / how to improve
@@ -15,69 +15,70 @@ Memory = historical recall / provenance / supersession
 Host   = model and tool execution
 ```
 
-The Brain does not become a second OS, scheduler, memory database, connection registry, capability implementation layer, vendor model runtime, or source of hidden authority.
+AI-Verse OS and AI-Verse Memory remain separate repositories. Brain does not become a second OS, memory database, scheduler, connection registry, capability implementation layer, or hidden source of authority.
 
-## What is implemented
+## Core behavior
 
-The Brain currently includes:
+Brain implements:
 
-- deterministic scoped Brain objects, lifecycle state machines, authority tiers, optimistic concurrency, atomic writes and scope isolation;
-- Current/Desired State gap reasoning contracts, opportunity discovery, initiative ranking, dedupe, WIP caps and attention budgets;
-- objective planning, progress/stall detection, attempt budgets and V0-V3 evidence-backed verification;
-- derived user/agent/world beliefs with freshness and contradiction handling;
-- staged reflection, learning and controlled strategy evolution with privileged self-modification blocked;
-- cadence trigger contracts without owning the scheduler;
-- model-neutral reasoning envelopes and a runtime-neutral end-to-end cognition pipeline;
-- replay-safe external action boundaries with exact approvals, idempotency, receipts and uncertain-outcome reconciliation;
-- read-only AI-Verse host detection, integration planning and doctor;
-- **alpha.6:** dry-run-first initialization, versioned installation metadata, fail-closed upgrade checks, adaptive explicit-user onboarding and installation/onboarding doctor checks;
-- **alpha.7:** a hardened universal JSON subprocess bridge for model/host adapters, live adapter handshake diagnostics, filtered environment forwarding, bounded I/O/timeouts and a safe reference adapter.
+- explicit user intent, desired states, goals, practices, boundaries and constraints;
+- Current State -> Ideal State gap reasoning;
+- opportunity discovery, initiative ranking, dedupe, WIP and attention budgets;
+- bounded objectives, progress/stall detection and attempt budgets;
+- V0-V3 evidence-backed verification;
+- derived beliefs with provenance, freshness and contradiction handling;
+- reflection, staged learning and controlled strategy evolution;
+- deterministic authority, lifecycle, concurrency and replay-safety gates;
+- proactivity that is separate from action permission;
+- cadence policy without scheduler ownership;
+- a model-neutral cognition pipeline;
+- a hardened universal JSON subprocess bridge;
+- reasoner-only Claude Code, Codex CLI and Hermes Agent wrappers;
+- safe initialization, onboarding, migration planning and health checks.
 
-The runtime pipeline is:
-
-```text
-trigger
-  -> bounded orientation/context
-  -> reasoner adapter
-  -> strict proposal parser
-  -> deterministic proposal application
-  -> attention/surface decision
-  -> optional separately authorized action path
-```
-
-The central rule remains:
+The central rule is:
 
 > **The model may reason about what should happen, but deterministic policy decides what may happen and the host proves what did happen.**
 
-## Safe initialization
+## Install
 
-Install the package from a checkout during alpha development:
+Python 3.9+ is required.
+
+For the beta tag:
+
+```bash
+python -m pip install "git+https://github.com/aiverse-filmmakers/AI-Verse-Brain.git@v0.1.0-beta.1"
+```
+
+Or with `pipx`:
+
+```bash
+pipx install "git+https://github.com/aiverse-filmmakers/AI-Verse-Brain.git@v0.1.0-beta.1"
+```
+
+During development from a checkout:
 
 ```bash
 python -m pip install -e .
 ```
 
-Inspect the installation plan first:
+## Initialize safely
+
+Brain is dry-run-first. Inspect what it would create:
 
 ```bash
 ai-verse-brain init /path/to/agent/root
 ```
 
-No state is written by that command. Apply only after reviewing the plan:
+No state is written by that command. Apply only after review:
 
 ```bash
 ai-verse-brain init /path/to/agent/root --apply
 ```
 
-Standalone mode owns only:
+Standalone mode owns only Brain paths under `.ai-verse-brain/`.
 
-```text
-.ai-verse-brain/
-.ai-verse-brain/runtime/
-.ai-verse-brain/installation.json
-```
-
-AI-Verse OS v2 native mode owns only Brain paths such as:
+Native AI-Verse OS v2 mode owns only Brain paths such as:
 
 ```text
 operator/brain/
@@ -85,96 +86,160 @@ workspaces/<id>/brain/
 runtime/ai-verse-brain/
 ```
 
-Native initialization requires the host to already expose an `extensions.brain` slot. The installer reports a blocker rather than editing `AI-VERSE.yaml` implicitly.
+If an AI-Verse host is incompatible or lacks the native Brain extension contract, initialization reports a blocker instead of editing host-owned canonical OS configuration or silently creating a competing standalone store.
 
-## Adaptive onboarding
+## Onboard explicit intent
 
-After initialization:
+Inspect the missing Brain-owned primitives:
 
 ```bash
 ai-verse-brain onboard /path/to/agent/root
 ```
 
-The Brain asks only for missing Brain-owned primitives. At minimum it needs explicit user authority for:
+At minimum Brain needs explicit user answers for:
 
-- a desired state;
-- a definition of success.
+- desired state;
+- definition of success.
 
-Optional answers can add goals, boundaries, constraints and ongoing practices. Current-state/profile facts remain host/OS-owned rather than being duplicated into Brain onboarding.
+Optional onboarding can add goals, boundaries, constraints and ongoing practices. Brain does not silently convert an inference into confirmed user intent.
 
-Prepare a JSON answers file, review it without writing:
+Review an answers file without writing:
 
 ```bash
 ai-verse-brain onboard /path/to/agent/root --answers brain-onboarding.json
 ```
 
-Then explicitly apply it:
+Apply explicitly:
 
 ```bash
 ai-verse-brain onboard /path/to/agent/root --answers brain-onboarding.json --apply
 ```
 
-Identical answers are deduplicated. The Brain cannot infer an unconfirmed goal into confirmed user intent.
+## Use Claude, Codex or Hermes as the reasoner
 
-See [`docs/INSTALLATION.md`](docs/INSTALLATION.md) and [`protocol/INSTALLATION-ONBOARDING.md`](protocol/INSTALLATION-ONBOARDING.md).
+The built-in vendor wrappers are **reasoner-only**. They do not become Brain's host/action executor and cannot bypass Brain permissions.
 
-## Universal runtime adapters
+Check the installed CLI wrapper first:
 
-Brain now has one vendor-neutral adapter transport:
+```bash
+ai-verse-brain vendor-doctor claude .
+ai-verse-brain vendor-doctor codex .
+ai-verse-brain vendor-doctor hermes .
+```
+
+Optional model selection is passed explicitly:
+
+```bash
+ai-verse-brain vendor-doctor claude . --model <model>
+ai-verse-brain vendor-doctor codex . --model <model>
+ai-verse-brain vendor-doctor hermes . --provider <provider> --model <model>
+```
+
+Brain does not store credential values. If a CLI requires an API-key environment variable rather than its own authenticated local session, forward only the variable **name**:
+
+```bash
+ai-verse-brain vendor-doctor claude . --env-name ANTHROPIC_API_KEY
+```
+
+The bridge launches subprocesses with `shell=False`, bounded input/output, timeouts and a filtered environment.
+
+## Run one Brain tick
+
+A safe public-beta tick uses a read-only context host plus a reasoner-only vendor wrapper:
+
+```bash
+ai-verse-brain run-tick . --vendor claude --trigger explicit
+```
+
+Or supply a current-context file explicitly:
+
+```bash
+ai-verse-brain run-tick . --vendor codex --context-file ./CURRENT.md --trigger explicit
+```
+
+In native AI-Verse mode the read-only host can discover the canonical `operator/context/CURRENT.md` or scoped workspace `context/CURRENT.md`. It does not copy that content into a competing canonical store merely because the reasoner saw it.
+
+The runtime pipeline remains:
 
 ```text
-Brain
-  -> ai-verse-brain-bridge/1.0
-      -> Claude wrapper
-      -> Codex wrapper
-      -> Hermes wrapper
-      -> local/custom runtime
+trigger
+  -> bounded orientation/context
+  -> reasoner
+  -> strict proposal parser
+  -> deterministic proposal application
+  -> attention decision
+  -> optional separately authorized action path
 ```
 
-An adapter config uses an argument array, never a shell command. Credential values do not belong in the config. Only explicitly allowlisted environment-variable names are forwarded beyond a small process environment.
+`run-tick` prints surface items. It does not silently send notifications or perform external side effects.
 
-Validate and live-handshake an adapter with:
+## Cadence without a second scheduler
+
+Brain decides what cognition triggers are useful, but it **does not install or own a scheduler**.
+
+Inspect cadence policy:
 
 ```bash
-ai-verse-brain adapter-doctor /path/to/adapter.json
+ai-verse-brain plan-cadence --scope operator --proactivity 2
 ```
 
-A safe no-op reference implementation is included:
+Generate portable argv hooks that a host scheduler can install:
 
 ```bash
-ai-verse-brain adapter-doctor examples/reference-adapter.json
+ai-verse-brain cadence-hooks . --vendor claude --scope operator --proactivity 2
 ```
 
-The bridge can provide both `ReasonerAdapter` and `HostAdapter` implementations, but advertising an operation never grants authority. External actions still pass through Brain's independent action policy, approval, scope, idempotency and receipt gates.
+This can represent session start/end, scheduled orientation and strategic review while leaving cron/systemd/launchd/Hermes/AI-Verse cadence ownership with the host.
 
-See [`docs/ADAPTERS.md`](docs/ADAPTERS.md) and [`protocol/ADAPTER-BRIDGE.md`](protocol/ADAPTER-BRIDGE.md).
+## Upgrade and migration
 
-## Health and integration
+Migration is explicit and dry-run-first:
+
+```bash
+ai-verse-brain migrate .
+```
+
+Apply only a registered safe migration or package-metadata refresh:
+
+```bash
+ai-verse-brain migrate . --apply
+```
+
+Unknown older state schemas, newer state schemas and unsupported marker schemas fail closed. Brain never guesses a destructive migration.
+
+## Health checks
 
 ```bash
 ai-verse-brain doctor .
 ai-verse-brain plan-integration .
-ai-verse-brain plan-cadence --scope operator --proactivity 2
 ```
 
-`doctor` is read-only. It checks host compatibility, parallel-store risk, installation/state-schema integrity, state scope/kind integrity and minimum onboarding readiness.
+`doctor` is read-only. It checks host compatibility, parallel-store risk, installation/state-schema integrity, scoped Brain state and minimum onboarding readiness.
 
-AI-Verse OS and AI-Verse Memory remain separate repositories. Memory is optional. Brain never silently falls back to a parallel standalone store inside an incompatible AI-Verse host.
+## Security boundaries
 
-## Development
+- explicit user intent outranks inference;
+- proactivity never grants action permission;
+- vendor wrappers are reasoner-only;
+- external side effects use separate approval, idempotency and receipt gates;
+- uncertain side effects are not automatically retried;
+- adapter configs store environment variable names, not secret values;
+- host/retrieved content remains data, never an authority channel;
+- incompatible AI-Verse hosts never silently fall back to a parallel Brain store;
+- runtime queues, locks and caches are disposable; canonical Brain state is scoped and inspectable.
+
+See [`SECURITY.md`](SECURITY.md), [`docs/VENDOR-REASONERS.md`](docs/VENDOR-REASONERS.md), [`docs/INSTALLATION.md`](docs/INSTALLATION.md) and [`protocol/`](protocol/).
+
+## Development and QC
 
 ```bash
 python -m unittest discover -s tests -v
 ```
 
-The implementation uses only the Python standard library and targets Python 3.9+. CI tests Python 3.9 and 3.12 on Ubuntu, macOS and Windows.
+CI runs the full suite on Ubuntu, macOS and Windows with Python 3.9 and 3.12. The release workflow also builds a wheel, installs it into a clean virtual environment, invokes the installed CLI, initializes fresh state, runs health/migration checks and verifies the installation marker.
 
-Implementation contracts live in [`protocol/`](protocol/). Full Phase 1-3 research remains in [`research/`](research/README.md).
-
-## Remaining before public stable shipment
-
-Alpha.7 is not the stable release. Remaining shipment work includes vendor-specific Claude/Codex/Hermes reference wrappers, scheduler hooks, migration implementations for future state schemas, one-line distribution/release packaging, end-to-end clean-machine install tests, release security/docs, observability/user commands and public-beta compatibility hardening.
+Full Phase 1-3 architectural research remains in [`research/`](research/README.md).
 
 ## License
 
-A release license has not yet been finalized for the Brain repository.
+MIT. See [`LICENSE`](LICENSE).

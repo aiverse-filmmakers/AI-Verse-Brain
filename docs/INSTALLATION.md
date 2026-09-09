@@ -1,40 +1,46 @@
 # Installing AI-Verse Brain
 
-AI-Verse Brain is still an alpha during Phase 5. The installation flow is designed to be safe before it is made convenient.
+AI-Verse Brain `0.1.0-beta.1` is a public beta release candidate. The installation flow is dry-run-first and preserves Brain's ownership boundary.
 
-## 1. Install the Python package from a checkout
+## 1. Install
 
-From the repository root:
+Python 3.9+ is required.
+
+From the beta tag:
+
+```bash
+python -m pip install "git+https://github.com/aiverse-filmmakers/AI-Verse-Brain.git@v0.1.0-beta.1"
+```
+
+Or:
+
+```bash
+pipx install "git+https://github.com/aiverse-filmmakers/AI-Verse-Brain.git@v0.1.0-beta.1"
+```
+
+From a development checkout:
 
 ```bash
 python -m pip install -e .
 ```
 
-The package currently targets Python 3.9+ and has no runtime third-party dependencies.
+Brain has no required third-party runtime Python dependencies.
 
-## 2. Inspect the target before writing anything
+## 2. Inspect the target before writing
 
 ```bash
 ai-verse-brain init /path/to/your/agent/root
 ```
 
-This is a dry run. It reports:
-
-- detected host mode;
-- state and runtime paths Brain would own;
-- files/directories it would create;
-- blockers and warnings;
-- whether the target is already initialized.
+This reports detected host mode, Brain-owned state/runtime paths, planned files/directories, warnings/blockers and existing installation state. It writes nothing.
 
 ## 3. Apply initialization
-
-After reviewing the plan:
 
 ```bash
 ai-verse-brain init /path/to/your/agent/root --apply
 ```
 
-Standalone mode creates only:
+Standalone mode creates Brain state under:
 
 ```text
 .ai-verse-brain/
@@ -42,89 +48,108 @@ Standalone mode creates only:
 .ai-verse-brain/installation.json
 ```
 
-Compatible AI-Verse OS v2 native mode uses:
+Compatible AI-Verse OS v2 native mode uses Brain-owned paths such as:
 
 ```text
 operator/brain/
+workspaces/<id>/brain/
 runtime/ai-verse-brain/
-operator/brain/installation.json
 ```
 
-The installer does not edit `AI-VERSE.yaml`. Native mode therefore requires the host to already expose an `extensions.brain` slot.
+The installer does not edit `AI-VERSE.yaml`. Native mode therefore requires the host to already expose the supported Brain extension contract. An incompatible host is a blocker, never a reason to silently create a parallel store.
 
-## 4. Inspect onboarding questions
+## 4. Onboard explicit intent
+
+Inspect questions:
 
 ```bash
 ai-verse-brain onboard /path/to/your/agent/root
 ```
 
-The onboarding plan is adaptive. At minimum the Brain needs explicit user authority for:
+At minimum Brain needs explicit user authority for a desired state and definition of success. Optional answers can add goals, hard boundaries, constraints and ongoing practices.
 
-- a desired state;
-- a definition of success.
-
-It may also ask for current goals, hard boundaries, constraints, and ongoing practices.
-
-Current-state facts are deliberately not stored by Brain onboarding. They remain in the host or AI-Verse OS canonical context.
-
-## 5. Prepare answers
+Current-state facts remain host/OS-owned rather than being duplicated by onboarding.
 
 Example `brain-onboarding.json`:
 
 ```json
 {
-  "desired_state": "A calm, reliable operating system that steadily moves my important projects forward.",
-  "success_definition": "Important projects make measurable progress without hidden autonomy, duplicated truth, or constant interruptions.",
-  "goals": [
-    "Ship the first production-ready version of my primary project"
-  ],
-  "boundaries": [
-    "Never send, publish, spend, delete, deploy, or change permissions without the required approval policy"
-  ],
-  "constraints": [
-    "Prefer local-first and inspectable state"
-  ],
-  "practices": [
-    "Review active initiatives weekly"
-  ]
+  "desired_state": "A reliable system that steadily moves important work forward.",
+  "success_definition": "Important goals make measurable progress without hidden autonomy or duplicated truth.",
+  "goals": ["Reach a reliable public beta"],
+  "boundaries": ["Never silently change user goals or permissions"],
+  "constraints": ["Prefer local-first inspectable state"],
+  "practices": ["Review active initiatives weekly"]
 }
 ```
 
-Review without writing:
+Dry run:
 
 ```bash
 ai-verse-brain onboard /path/to/your/agent/root --answers brain-onboarding.json
 ```
 
-Apply explicit answers:
+Apply:
 
 ```bash
 ai-verse-brain onboard /path/to/your/agent/root --answers brain-onboarding.json --apply
 ```
 
-Identical answers are deduplicated rather than written twice.
+Identical answers are deduplicated.
 
-## 6. Run doctor
+## 5. Check a reasoner
+
+```bash
+ai-verse-brain vendor-doctor claude /path/to/your/agent/root
+ai-verse-brain vendor-doctor codex /path/to/your/agent/root
+ai-verse-brain vendor-doctor hermes /path/to/your/agent/root
+```
+
+These built-in wrappers are reasoner-only. They do not become action executors.
+
+## 6. Run one bounded cognition tick
+
+```bash
+ai-verse-brain run-tick /path/to/your/agent/root --vendor claude --trigger explicit
+```
+
+For standalone use, pass a current-context file if desired:
+
+```bash
+ai-verse-brain run-tick /path/to/your/agent/root --vendor codex --context-file /path/to/CURRENT.md
+```
+
+## 7. Run doctor
 
 ```bash
 ai-verse-brain doctor /path/to/your/agent/root
 ```
 
-Doctor is read-only. It checks host compatibility, parallel-store risk, installation/version integrity, state scope/kind integrity, and minimum onboarding readiness.
+Doctor is read-only. It checks host compatibility, parallel-store risk, installation/version integrity, scoped Brain state and onboarding readiness.
 
-## Upgrade behavior
+## Cadence
 
-The installation marker stores the Brain state schema version. A package that encounters newer state refuses to initialize over it. Older state also requires an explicit migration rather than being silently rewritten.
+Brain does not install a scheduler. Generate portable scheduler requests/argv hooks and let the host decide whether/how to install them:
 
-This is intentional. User Brain state must never be destructively upgraded just because a package version changed.
+```bash
+ai-verse-brain plan-cadence --scope operator --proactivity 2
+ai-verse-brain cadence-hooks /path/to/your/agent/root --vendor claude --scope operator --proactivity 2
+```
 
-## Not yet included in this Phase 5 slice
+## Upgrades and migration
 
-- one-line remote installer;
-- PyPI stable release;
-- production Claude/Codex/Hermes adapters;
-- scheduler hooks;
-- migration implementations beyond the current state schema;
-- stable public release guarantees.
+Inspect migration first:
 
-Those are subsequent shipment slices, not reasons to weaken the installation boundary now.
+```bash
+ai-verse-brain migrate /path/to/your/agent/root
+```
+
+Apply only a registered safe migration or package metadata refresh:
+
+```bash
+ai-verse-brain migrate /path/to/your/agent/root --apply
+```
+
+Newer state, unsupported marker schemas and unknown older schemas fail closed. User Brain state is never destructively rewritten merely because a package version changed.
+
+See [`VENDOR-REASONERS.md`](VENDOR-REASONERS.md), [`ADAPTERS.md`](ADAPTERS.md), [`RELEASE.md`](RELEASE.md) and [`../SECURITY.md`](../SECURITY.md).

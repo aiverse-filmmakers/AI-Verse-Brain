@@ -1,10 +1,6 @@
 # Connecting an Agent Runtime to AI-Verse Brain
 
-AI-Verse Brain does not require a particular model vendor or agent framework. The preferred integration boundary is the `ai-verse-brain-bridge/1.0` JSON subprocess protocol.
-
-This keeps vendor-specific code outside the deterministic Brain core.
-
-## Architecture
+AI-Verse Brain does not require a particular model vendor or agent framework. The stable integration boundary is the `ai-verse-brain-bridge/1.0` JSON subprocess protocol.
 
 ```text
 AI-Verse Brain
@@ -13,16 +9,30 @@ AI-Verse Brain
     v
 JSON subprocess bridge
     |
-    +--> Claude wrapper
-    +--> Codex wrapper
-    +--> Hermes wrapper
-    +--> local model wrapper
-    +--> custom agent/runtime
+    +--> built-in Claude reasoner wrapper
+    +--> built-in Codex reasoner wrapper
+    +--> built-in Hermes reasoner wrapper
+    +--> local/custom reasoner
+    +--> separately authorized host/runtime
 ```
 
-The wrapper may call a CLI, SDK, local service or existing agent runtime. Brain does not care, provided the wrapper satisfies the bridge contract.
+Vendor-specific code stays outside the deterministic Brain core.
 
-## Minimal config
+## Built-in vendor wrappers
+
+Public beta includes reasoner-only wrappers:
+
+```bash
+ai-verse-brain vendor-doctor claude .
+ai-verse-brain vendor-doctor codex .
+ai-verse-brain vendor-doctor hermes .
+```
+
+They advertise only `reason`. They do not advertise host/action operations.
+
+See [`VENDOR-REASONERS.md`](VENDOR-REASONERS.md) for the current CLI invocation profiles and compatibility policy.
+
+## Custom adapter config
 
 ```json
 {
@@ -40,11 +50,9 @@ Validate it and perform a live handshake:
 ai-verse-brain adapter-doctor /path/to/adapter.json
 ```
 
-A successful doctor report confirms protocol version, advertised operations and host idempotency support.
-
 ## Credentials
 
-Do not put credentials in the adapter JSON or command arguments.
+Do not put credential values in adapter JSON or command arguments.
 
 If a wrapper expects a provider credential from the environment, list only its variable name:
 
@@ -54,72 +62,23 @@ If a wrapper expects a provider credential from the environment, list only its v
 }
 ```
 
-The Brain process passes that variable only when explicitly allowlisted. The credential value is not stored by Brain.
-
-The subprocess receives a small base environment required for normal process execution plus the names explicitly listed in `env_names`. Arbitrary parent-process environment variables are not inherited.
+The credential value is not persisted by Brain. The bridge supplies a small baseline process environment plus explicitly allowlisted variable names.
 
 ## Writing a reasoner wrapper
 
-Every process invocation receives exactly one request on stdin and must return exactly one response on stdout.
+Every invocation receives exactly one bridge request on stdin and must return exactly one bridge response on stdout.
 
-Your wrapper must implement `describe` and advertise `reason`.
+Implement `describe` and advertise `reason`.
 
-For `reason`, the payload contains:
+For `reason`, the payload contains a bounded cognition request plus ephemeral context. Translate it into the vendor/model format and return only proposal data allowed by Brain's cognition contract.
 
-```json
-{
-  "request": {
-    "purpose": "gap_analysis",
-    "scope": "operator",
-    "output_contract": {}
-  },
-  "context": {
-    "current_context": {},
-    "brain_state": [],
-    "history": [],
-    "capabilities": [],
-    "connections": []
-  }
-}
-```
-
-Translate this into the prompt/API format expected by your model. Return only proposal data allowed by Brain's cognition contract.
-
-Do not let the model decide Brain scope, lifecycle status, permissions, approvals or policy. The core binds those outside the model response.
+Do not let the model decide Brain scope, lifecycle status, permissions, approvals or policy. Those are bound outside model output.
 
 ## Writing a host wrapper
 
-A single wrapper can also expose host operations such as reading current context or delegating an already-authorized action.
+A host can expose read operations and, where necessary, separately authorized execution operations.
 
-Advertise only operations the wrapper genuinely implements.
-
-A host wrapper does not get permission merely by advertising `request_action`. The Brain ActionExecutor remains in front of it.
-
-## Claude, Codex and Hermes
-
-The Brain-side integration is intentionally identical for all three:
-
-1. create a small wrapper around the runtime's supported CLI/SDK/tool interface;
-2. implement `describe` and the operations you need;
-3. keep provider authentication in that runtime's normal credential mechanism or explicitly allowlisted environment variables;
-4. return model reasoning only through `reason`;
-5. let Brain validate and apply proposals deterministically;
-6. accept external side-effect requests only through the separate host `request_action` operation.
-
-This design prevents future changes to any vendor CLI from changing Brain's source-of-truth, authority or self-improvement model.
-
-Vendor-specific reference wrappers are a subsequent shipment slice. The universal transport and safety boundary are the stable integration target they will use.
-
-## Recommended operation split
-
-A reasoner-only adapter needs:
-
-```text
-describe
-reason
-```
-
-A read-oriented host usually adds:
+Recommended read-oriented operations:
 
 ```text
 read_context
@@ -128,7 +87,7 @@ list_capabilities
 list_connections
 ```
 
-An execution-capable host can additionally expose:
+Execution-capable hosts may additionally expose:
 
 ```text
 request_action
@@ -139,20 +98,23 @@ notify_user
 write_route
 ```
 
-Only expose what is required.
+Advertising an operation never grants authority. `ActionExecutor` and Brain policy remain in front of external effects.
+
+For users who only need safe cognition, the built-in `ReadOnlyContextHost` is intentionally smaller: current context only, no history ownership, no scheduler, no notifications and no write/action path.
 
 ## Failure semantics
 
-Brain fails closed if a wrapper:
+Brain fails closed if an adapter:
 
 - times out;
-- exceeds input/output bounds;
+- exceeds I/O limits;
 - crashes or exits nonzero;
-- returns non-JSON stdout;
-- returns the wrong protocol version or request ID;
-- lies about result shape;
-- tries to use an operation it did not advertise.
+- returns invalid JSON;
+- duplicates JSON object keys;
+- returns the wrong protocol/request ID;
+- returns an invalid result shape;
+- uses an operation it did not advertise.
 
-Do not write fallback code that bypasses these failures by directly mutating Brain state.
+Do not create fallback code that bypasses these errors by directly mutating Brain state.
 
-See [`../protocol/ADAPTER-BRIDGE.md`](../protocol/ADAPTER-BRIDGE.md) for the normative protocol.
+See [`../protocol/ADAPTER-BRIDGE.md`](../protocol/ADAPTER-BRIDGE.md) for the normative transport contract.

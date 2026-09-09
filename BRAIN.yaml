@@ -2,8 +2,8 @@ schema_version: "0.1"
 architecture: intent-cognition-initiative-learning
 package:
   name: AI-Verse Brain
-  version: "0.1.0-alpha.7"
-  status: phase-5-universal-adapter-bridge
+  version: "0.1.0-beta.1"
+  status: public-beta-release-candidate
   python: ">=3.9"
 
 purpose: "Universal intelligence layer for persistent intent, initiative, bounded execution, verification, learning, and controlled self-improvement."
@@ -39,6 +39,9 @@ principles:
   adapter_subprocesses_never_use_shell: true
   adapter_io_is_bounded: true
   adapter_credentials_are_not_stored: true
+  vendor_reasoners_are_read_only: true
+  brain_does_not_own_scheduler: true
+  migrations_are_explicit_and_non_destructive: true
 
 modes:
   - ai-verse-os-v2
@@ -114,6 +117,14 @@ implemented_mechanisms:
   - bridge_reasoner_adapter
   - bridge_host_adapter
   - adapter_doctor
+  - claude_reasoner_wrapper
+  - codex_reasoner_wrapper
+  - hermes_reasoner_wrapper
+  - read_only_context_host
+  - runnable_tick_cli
+  - portable_cadence_hooks
+  - explicit_migration_planner
+  - clean_install_smoke_testing
 
 non_ownership:
   - workspace_identity
