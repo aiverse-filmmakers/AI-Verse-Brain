@@ -8,13 +8,12 @@ import tempfile
 from typing import Any, Dict, List, Optional, Tuple
 from uuid import uuid4
 
+from ._version import INSTALLATION_SCHEMA_VERSION, STATE_SCHEMA_VERSION, __version__
 from .errors import ValidationError
 from .integration import HostMode, inspect_host
 from .models import utc_now
 
-INSTALLATION_SCHEMA_VERSION = "1.0"
-STATE_SCHEMA_VERSION = "1.0"
-PACKAGE_VERSION = "0.1.0a6"
+PACKAGE_VERSION = __version__
 
 
 def _version_tuple(value: str) -> Tuple[int, ...]:
