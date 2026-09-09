@@ -2,8 +2,8 @@ schema_version: "0.1"
 architecture: intent-cognition-initiative-learning
 package:
   name: AI-Verse Brain
-  version: "0.1.0-alpha.5"
-  status: phase-4-runtime-neutral-pipeline
+  version: "0.1.0-alpha.6"
+  status: phase-5-shipment-initialization-onboarding
   python: ">=3.9"
 
 purpose: "Universal intelligence layer for persistent intent, initiative, bounded execution, verification, learning, and controlled self-improvement."
@@ -31,6 +31,10 @@ principles:
   model_output_never_executes_actions_directly: true
   model_created_objectives_start_unverified: true
   whole_tick_receipt_covers_reasoning_and_application: true
+  installation_is_dry_run_first: true
+  installer_writes_only_brain_owned_paths: true
+  state_upgrades_fail_closed_without_explicit_migration: true
+  onboarding_confirms_only_explicit_user_answers: true
 
 modes:
   - ai-verse-os-v2
@@ -47,7 +51,10 @@ standalone_paths:
 
 durable_operational_state:
   action_receipt_refs: "<scope-brain-state>/action-receipts/"
-  rule: "Store minimal replay/reconciliation metadata only; do not duplicate external content or OS/Memory truth."
+  installation_marker: "<operator-brain-state>/installation.json"
+  rule: "Store minimal replay/reconciliation/installation metadata only; do not duplicate external content or OS/Memory truth."
+
+state_schema_version: "1.0"
 
 canonical_kinds:
   - intent
@@ -88,6 +95,12 @@ implemented_mechanisms:
   - weak_reflection_cannot_self_validate
   - surface_decisions_without_implicit_user_notification
   - explicit_action_path_separate_from_cognition
+  - dry_run_first_initialization
+  - idempotent_installation_marker
+  - state_schema_version_guard
+  - native_install_requires_existing_brain_extension_slot
+  - adaptive_explicit_intent_onboarding
+  - installation_and_onboarding_doctor_checks
 
 non_ownership:
   - workspace_identity
