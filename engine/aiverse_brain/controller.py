@@ -7,7 +7,7 @@ from .authority import AuthorityTier, assert_policy_mutation
 from .cadence import Trigger, TriggerLedger
 from .models import BrainObject, Scope
 from .policy import BrainPolicy
-from .state_machine import assert_transition
+from .state_machine import assert_creation, assert_transition
 from .storage import ObjectStore, StorageLayout
 
 
@@ -31,7 +31,8 @@ class BrainController:
         self.policy.validate()
         self.trigger_ledger = TriggerLedger(self.layout.runtime_dir)
 
-    def create(self, kind: str, scope: str, status: str, payload: Dict[str, Any], *, actor: str = "brain") -> BrainObject:
+    def create(self, kind: str, scope: str, status: str, payload: Dict[str, Any], *, source: AuthorityTier = AuthorityTier.TEMPORARY_HYPOTHESIS, actor: str = "brain") -> BrainObject:
+        assert_creation(kind, status, source)
         obj = BrainObject.new(kind, scope, status, payload, created_by=actor)
         return self.store.save(obj, expected_revision=-1)
 
@@ -52,7 +53,7 @@ class BrainController:
         return self.store.save(obj, expected_revision=expected)
 
     def orientation(self, scope: str) -> Orientation:
-        Scope(scope)  # validate
+        Scope(scope)
         goals = [o.to_dict() for o in self.store.list("intent", scope, {"CONFIRMED", "ACTIVE"}) if o.payload.get("subtype") in {"goal", "desired_state"}]
         practices = [o.to_dict() for o in self.store.list("practice", scope, {"ACTIVE"})]
         initiatives = [o.to_dict() for o in self.store.list("initiative", scope, {"ACCEPTED", "ACTIVE", "WAITING", "BLOCKED", "STALLED", "REVIEW"})]
@@ -63,11 +64,9 @@ class BrainController:
     def run_trigger(self, trigger: Trigger) -> Orientation:
         self.trigger_ledger.claim(trigger)
         try:
-            # Phase 4 core keeps trigger behavior deterministic and lightweight.
-            # Deep reasoning is delegated to a host/runtime through future orchestration adapters.
             result = self.orientation(trigger.scope.value)
         except Exception:
-            # A claimed-but-incomplete receipt is intentionally left for recovery inspection.
+            # A claimed-but-incomplete receipt is intentionally retained for explicit recovery.
             raise
         self.trigger_ledger.complete(trigger)
         return result

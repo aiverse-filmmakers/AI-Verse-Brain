@@ -22,6 +22,10 @@ class RevisionConflict(BrainError):
     pass
 
 
+class LockConflict(BrainError):
+    pass
+
+
 class DuplicateTrigger(BrainError):
     pass
 

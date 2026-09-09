@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import time
 from typing import Any, Dict, List
 from uuid import uuid4
 
@@ -57,9 +58,8 @@ class TriggerLedger:
             "claimed_at": utc_now(),
             "status": "claimed",
         }
-        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
         try:
-            fd = os.open(str(path), flags, 0o600)
+            fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         except FileExistsError as exc:
             raise DuplicateTrigger(trigger.idempotency_key) from exc
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
@@ -71,4 +71,20 @@ class TriggerLedger:
         data = json.loads(path.read_text(encoding="utf-8"))
         data["status"] = "completed"
         data["completed_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-        path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        temp = path.with_suffix(".tmp")
+        temp.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        os.replace(str(temp), str(path))
+
+    def recover_stale_claim(self, idempotency_key: str, *, minimum_age_seconds: int = 300) -> bool:
+        """Explicit recovery only. Completed receipts are never cleared by this method."""
+        path = self._path(idempotency_key)
+        if not path.exists():
+            return False
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if data.get("status") != "claimed":
+            return False
+        age = time.time() - path.stat().st_mtime
+        if age < minimum_age_seconds:
+            return False
+        path.unlink()
+        return True

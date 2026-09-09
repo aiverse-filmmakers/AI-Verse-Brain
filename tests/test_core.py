@@ -5,7 +5,7 @@ from pathlib import Path
 from aiverse_brain.authority import AuthorityTier, assert_control_channel, assert_self_evolution_fields
 from aiverse_brain.cadence import Trigger
 from aiverse_brain.controller import BrainController
-from aiverse_brain.errors import AuthorityError, DuplicateTrigger, PermissionDenied, RevisionConflict, TransitionError
+from aiverse_brain.errors import AuthorityError, DuplicateTrigger, PermissionDenied, RevisionConflict, TransitionError, ValidationError
 from aiverse_brain.models import BrainObject, EvidenceRef, Scope
 from aiverse_brain.policy import BrainPolicy, ProactivityLevel
 from aiverse_brain.ranking import Eligibility, ScoreComponents, NotificationClass, rank
@@ -15,11 +15,36 @@ from aiverse_brain.verification import Criterion, VerificationFactors, Verificat
 from aiverse_brain.write_router import WriteRoute, classify_write
 
 
+def initiative_payload(label="x"):
+    return {
+        "serves": ["goal-1"],
+        "gap_refs": ["gap-1"],
+        "hypothesis": label,
+        "outcome": "verified improvement",
+        "score_components": {},
+    }
+
+
 class StateMachineTests(unittest.TestCase):
     def test_brain_cannot_confirm_goal_without_user_authority(self):
         with self.assertRaises(AuthorityError):
             assert_transition("intent", "PROPOSED", "CONFIRMED", AuthorityTier.VALIDATED_STRATEGY)
         assert_transition("intent", "PROPOSED", "CONFIRMED", AuthorityTier.EXPLICIT_USER)
+
+    def test_creation_cannot_bypass_goal_confirmation(self):
+        with tempfile.TemporaryDirectory() as temp:
+            controller = BrainController(temp)
+            payload = {"subtype": "goal", "statement": "become excellent"}
+            with self.assertRaises(TransitionError):
+                controller.create("intent", "operator", "ACTIVE", payload)
+            confirmed = controller.create("intent", "operator", "CONFIRMED", payload, source=AuthorityTier.EXPLICIT_USER, actor="user")
+            self.assertEqual(confirmed.status, "CONFIRMED")
+
+    def test_brain_cannot_create_policy(self):
+        with tempfile.TemporaryDirectory() as temp:
+            controller = BrainController(temp)
+            with self.assertRaises(AuthorityError):
+                controller.create("policy", "operator", "ACTIVE", {"proactivity": "P2"})
 
     def test_invalid_transition_rejected(self):
         with self.assertRaises(TransitionError):
@@ -63,7 +88,7 @@ class RankingTests(unittest.TestCase):
 class VerificationTests(unittest.TestCase):
     def test_pass_requires_evidence(self):
         criterion = Criterion("c1", "tests pass")
-        with self.assertRaises(Exception):
+        with self.assertRaises(ValidationError):
             criterion.mark("passed", [])
         criterion.mark("passed", [EvidenceRef("test-run-1", "DIRECT_MEASUREMENT")])
         self.assertEqual(criterion.status, "passed")
@@ -74,10 +99,17 @@ class VerificationTests(unittest.TestCase):
 
 
 class StorageTests(unittest.TestCase):
+    def test_payload_validation_is_enforced_on_write(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store = ObjectStore(StorageLayout(Path(temp), "standalone"))
+            obj = BrainObject.new("initiative", "operator", "DISCOVERED", {"hypothesis": "too little"})
+            with self.assertRaises(ValidationError):
+                store.save(obj, expected_revision=-1)
+
     def test_optimistic_concurrency(self):
         with tempfile.TemporaryDirectory() as temp:
             store = ObjectStore(StorageLayout(Path(temp), "standalone"))
-            obj = BrainObject.new("initiative", "operator", "DISCOVERED", {"hypothesis": "x"})
+            obj = BrainObject.new("initiative", "operator", "DISCOVERED", initiative_payload())
             saved = store.save(obj, expected_revision=-1)
             stale = BrainObject.from_dict(saved.to_dict())
             saved.status = "PROPOSED"
@@ -94,7 +126,7 @@ class StorageTests(unittest.TestCase):
             (root / "workspaces" / "b").mkdir(parents=True)
             (root / "AI-VERSE.yaml").write_text('schema_version: "2.0"\narchitecture: unified-workspace\n', encoding="utf-8")
             controller = BrainController(str(root))
-            controller.create("initiative", "workspace:a", "DISCOVERED", {"hypothesis": "a"})
+            controller.create("initiative", "workspace:a", "DISCOVERED", initiative_payload("a"))
             self.assertEqual(len(controller.store.list("initiative", "workspace:a")), 1)
             self.assertEqual(len(controller.store.list("initiative", "workspace:b")), 0)
             self.assertFalse((root / ".ai-verse-brain").exists())

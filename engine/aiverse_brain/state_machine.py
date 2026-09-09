@@ -1,6 +1,6 @@
 from typing import Dict, Set
 
-from .authority import AuthorityTier, assert_goal_confirmation
+from .authority import AuthorityTier, assert_goal_confirmation, assert_policy_mutation
 from .errors import TransitionError
 
 _TRANSITIONS: Dict[str, Dict[str, Set[str]]] = {
@@ -67,6 +67,32 @@ _TRANSITIONS: Dict[str, Dict[str, Set[str]]] = {
         "ROLLED_BACK": set(), "REJECTED": set(),
     },
 }
+
+_INITIAL = {
+    "intent": {"DRAFT", "PROPOSED"},
+    "practice": {"DRAFT", "PROPOSED"},
+    "gap": {"ACTIVE"},
+    "opportunity": {"DETECTED"},
+    "initiative": {"DISCOVERED"},
+    "objective": {"QUEUED"},
+    "model_belief": {"ACTIVE"},
+    "evaluation": {"RECORDED"},
+    "learning": {"OBSERVATION"},
+    "strategy_rule": {"CANDIDATE"},
+    "policy": {"ACTIVE"},
+}
+
+
+def assert_creation(kind: str, status: str, source: AuthorityTier) -> None:
+    if kind not in _INITIAL:
+        raise TransitionError(f"unknown kind: {kind}")
+    if kind == "policy":
+        assert_policy_mutation(source)
+    if kind in {"intent", "practice"} and status == "CONFIRMED":
+        assert_goal_confirmation(source)
+        return
+    if status not in _INITIAL[kind]:
+        raise TransitionError(f"invalid initial {kind} status: {status}")
 
 
 def allowed_transitions(kind: str, status: str) -> Set[str]:
