@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, List, Optional, Protocol
+from typing import Any, Dict, Iterable, List, Protocol
 
 from .cognition import CognitionProposal, CognitionRequest
 from .errors import CognitionContractError, ValidationError
@@ -72,6 +72,28 @@ class ContextAssembler:
         "strategy_review": ("learning", "strategy_rule", "evaluation"),
         "evaluation": ("objective", "evaluation"),
     }
+    LIVE_STATUSES = {
+        "intent": {"CONFIRMED", "ACTIVE"},
+        "practice": {"CONFIRMED", "ACTIVE", "PAUSED"},
+        "gap": {"ACTIVE"},
+        "opportunity": {"DETECTED", "WATCHING", "QUALIFIED"},
+        "initiative": {
+            "DISCOVERED", "PROPOSED", "DEFERRED", "ACCEPTED", "ACTIVE",
+            "WAITING", "BLOCKED", "STALLED", "PAUSED", "REVIEW",
+        },
+        "objective": {
+            "QUEUED", "READY", "RUNNING", "WAITING", "BLOCKED", "STALLED",
+            "VERIFYING", "INSUFFICIENT_EVIDENCE", "FAILED",
+        },
+        "model_belief": {"ACTIVE"},
+        "evaluation": {"RECORDED"},
+        "learning": {
+            "OBSERVATION", "HYPOTHESIS", "PATTERN", "REFLECTION",
+            "VALIDATED_LEARNING", "STRATEGY_CANDIDATE", "PROMOTED",
+        },
+        "strategy_rule": {"CANDIDATE", "ACTIVE"},
+        "policy": {"ACTIVE"},
+    }
 
     def __init__(
         self,
@@ -104,7 +126,8 @@ class ContextAssembler:
     def _brain_state(self, request: CognitionRequest) -> List[Dict[str, Any]]:
         result: List[Dict[str, Any]] = []
         for kind in self.BRAIN_KINDS.get(request.purpose.value, ()):
-            for obj in self.controller.store.list(kind, request.scope.value):
+            statuses = self.LIVE_STATUSES.get(kind)
+            for obj in self.controller.store.list(kind, request.scope.value, statuses):
                 result.append(obj.to_dict())
                 if len(result) >= self.max_brain_objects:
                     return result
@@ -186,15 +209,21 @@ def parse_reasoner_output(
         missing = [key for key in ("proposal_kind", "payload", "confidence") if key not in item]
         if missing:
             raise CognitionContractError(f"proposal {index} missing fields: {', '.join(missing)}")
+        confidence = item["confidence"]
+        if not isinstance(confidence, (int, float)) or isinstance(confidence, bool):
+            raise CognitionContractError(f"proposal {index} confidence must be numeric")
+        rationale = item.get("rationale")
+        if rationale is not None and not isinstance(rationale, str):
+            raise CognitionContractError(f"proposal {index} rationale must be a string when provided")
         proposal = CognitionProposal(
             request_id=request.request_id,
             purpose=request.purpose,
             scope=request.scope,
             proposal_kind=str(item["proposal_kind"]),
             payload=item["payload"],
-            confidence=float(item["confidence"]),
+            confidence=float(confidence),
             source_model=source_model.strip(),
-            rationale=item.get("rationale"),
+            rationale=rationale,
         )
         proposals.append(proposal)
     return proposals
