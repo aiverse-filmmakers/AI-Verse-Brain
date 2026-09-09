@@ -7,6 +7,11 @@ from .attention import AttentionLedger
 from .authority import AuthorityTier, assert_policy_mutation
 from .cadence import Trigger, TriggerLedger
 from .direction import DirectionService
+from .effective_policy import (
+    assert_policy_tightens,
+    load_effective_policy,
+    validate_policy_payload_for_scope,
+)
 from .errors import PolicyViolation, ValidationError
 from .evaluator import EvaluationService
 from .freshness import FreshnessService
@@ -37,8 +42,8 @@ class BrainController:
     def __init__(self, root: str, policy: Optional[BrainPolicy] = None):
         self.layout = StorageLayout.detect(root)
         self.store = ObjectStore(self.layout)
-        self.policy = policy or BrainPolicy()
-        self.policy.validate()
+        self._caller_policy = policy
+        self.policy = load_effective_policy(self.store, "operator", caller_override=policy)
         self.trigger_ledger = TriggerLedger(self.layout.runtime_dir)
         self.attention = AttentionLedger(self.layout.runtime_dir)
         self.direction = DirectionService(self)
@@ -46,6 +51,17 @@ class BrainController:
         self.evaluator = EvaluationService(self)
         self.freshness = FreshnessService(self)
         self.learning = LearningService(self)
+
+    def refresh_policy(self, scope: str = "operator") -> BrainPolicy:
+        """Reload the persisted policy for ``scope`` and re-apply only tightening caller overrides."""
+        self.policy = load_effective_policy(self.store, scope, caller_override=self._caller_policy)
+        return self.policy
+
+    def _validate_policy_change(self, scope: str, payload: Dict[str, Any]) -> BrainPolicy:
+        candidate = validate_policy_payload_for_scope(self.store, scope, payload)
+        if self._caller_policy is not None:
+            assert_policy_tightens(candidate, self._caller_policy, source="caller override")
+        return candidate
 
     def create(
         self,
@@ -61,27 +77,36 @@ class BrainController:
         supersedes: Optional[str] = None,
     ) -> BrainObject:
         assert_creation(kind, status, source)
+        if kind == "policy":
+            self._validate_policy_change(scope, payload)
+            if self.store.list("policy", scope, {"ACTIVE"}):
+                raise ValidationError(f"conflicting active policy in {scope}; supersede or update the existing policy first")
         obj = BrainObject.new(kind, scope, status, payload, created_by=actor)
         obj.source_refs = list(source_refs or [])
         obj.evidence_refs = list(evidence_refs or [])
         obj.supersedes = supersedes
-        return self.store.save(obj, expected_revision=-1)
+        saved = self.store.save(obj, expected_revision=-1)
+        if kind == "policy":
+            self.refresh_policy(scope)
+        return saved
 
     def _assert_initiative_capacity(self, scope: str, *, exclude_id: Optional[str] = None) -> None:
+        policy = self.refresh_policy(scope)
         active = [
             item for item in self.store.list("initiative", scope, self.ACTIVE_INITIATIVE_STATES)
             if item.id != exclude_id
         ]
-        if len(active) >= self.policy.attention.max_active_initiatives:
-            raise PolicyViolation(f"active initiative WIP cap reached ({self.policy.attention.max_active_initiatives})")
+        if len(active) >= policy.attention.max_active_initiatives:
+            raise PolicyViolation(f"active initiative WIP cap reached ({policy.attention.max_active_initiatives})")
 
     def _assert_objective_capacity(self, scope: str, *, exclude_id: Optional[str] = None) -> None:
+        policy = self.refresh_policy(scope)
         active = [
             item for item in self.store.list("objective", scope, self.ACTIVE_OBJECTIVE_STATES)
             if item.id != exclude_id
         ]
-        if len(active) >= self.policy.resources.max_parallel_objectives:
-            raise PolicyViolation(f"parallel objective cap reached ({self.policy.resources.max_parallel_objectives})")
+        if len(active) >= policy.resources.max_parallel_objectives:
+            raise PolicyViolation(f"parallel objective cap reached ({policy.resources.max_parallel_objectives})")
 
     @staticmethod
     def _assert_objective_passable(obj: BrainObject) -> None:
@@ -103,6 +128,10 @@ class BrainController:
             raise ValidationError("initiative completion requires evaluation_refs")
 
     def transition(self, kind: str, scope: str, object_id: str, target: str, *, source: AuthorityTier, actor: str) -> BrainObject:
+        if kind != "policy":
+            policy = self.refresh_policy(scope)
+        else:
+            policy = self.policy
         obj = self.store.load(kind, scope, object_id)
         assert_transition(kind, obj.status, target, source)
         if kind == "initiative" and target in {"ACCEPTED", "ACTIVE"} and obj.status not in self.ACTIVE_INITIATIVE_STATES:
@@ -116,28 +145,37 @@ class BrainController:
         if kind == "learning":
             assert_learning_transition(obj, target, source)
         if kind == "strategy_rule" and target == "ACTIVE":
-            assert_strategy_activation(obj, source, self.policy)
+            assert_strategy_activation(obj, source, policy)
         expected = obj.revision
         obj.status = target
         obj.updated_by = actor
-        return self.store.save(obj, expected_revision=expected)
+        saved = self.store.save(obj, expected_revision=expected)
+        if kind == "policy":
+            self.refresh_policy(scope)
+        return saved
 
     def update_policy(self, object_id: str, scope: str, payload: Dict[str, Any], *, source: AuthorityTier, actor: str) -> BrainObject:
         assert_policy_mutation(source)
+        self._validate_policy_change(scope, payload)
         obj = self.store.load("policy", scope, object_id)
+        if obj.status != "ACTIVE":
+            raise ValidationError("only an ACTIVE policy may be updated")
         expected = obj.revision
         obj.payload = dict(payload)
         obj.updated_by = actor
-        return self.store.save(obj, expected_revision=expected)
+        saved = self.store.save(obj, expected_revision=expected)
+        self.refresh_policy(scope)
+        return saved
 
     def orientation(self, scope: str) -> Orientation:
         Scope(scope)
+        policy = self.refresh_policy(scope)
         goals = [o.to_dict() for o in self.store.list("intent", scope, {"CONFIRMED", "ACTIVE"}) if o.payload.get("subtype") in {"goal", "desired_state"}]
         practices = [o.to_dict() for o in self.store.list("practice", scope, {"ACTIVE"})]
         initiatives = [o.to_dict() for o in self.store.list("initiative", scope, self.ACTIVE_INITIATIVE_STATES)]
         objectives = [o.to_dict() for o in self.store.list("objective", scope, self.ACTIVE_OBJECTIVE_STATES)]
         policies = [o.to_dict() for o in self.store.list("policy", scope)]
-        return Orientation(scope, goals, practices, initiatives[: self.policy.attention.max_active_initiatives], objectives, policies)
+        return Orientation(scope, goals, practices, initiatives[: policy.attention.max_active_initiatives], objectives, policies)
 
     def run_trigger(self, trigger: Trigger) -> Orientation:
         self.trigger_ledger.claim(trigger)
