@@ -2,8 +2,8 @@ schema_version: "0.1"
 architecture: intent-cognition-initiative-learning
 package:
   name: AI-Verse Brain
-  version: "0.1.0-alpha.3"
-  status: phase-4-integration-cadence-doctor-slice
+  version: "0.1.0-alpha.4"
+  status: phase-4-cognition-action-boundary
   python: ">=3.9"
 
 purpose: "Universal intelligence layer for persistent intent, initiative, bounded execution, verification, learning, and controlled self-improvement."
@@ -23,6 +23,10 @@ principles:
   provenance_for_durable_inference: true
   incompatible_host_never_falls_back_silently: true
   integration_planning_is_read_only: true
+  model_reasoning_is_advisory: true
+  external_side_effects_require_replay_safety: true
+  uncertain_side_effects_never_auto_retry: true
+  side_effect_receipt_references_survive_runtime_loss: true
 
 modes:
   - ai-verse-os-v2
@@ -36,6 +40,10 @@ native_paths:
 standalone_paths:
   state: .ai-verse-brain/
   runtime: .ai-verse-brain/runtime/
+
+durable_operational_state:
+  action_receipt_refs: "<scope-brain-state>/action-receipts/"
+  rule: "Store minimal replay/reconciliation metadata only; do not duplicate external content or OS/Memory truth."
 
 canonical_kinds:
   - intent
@@ -62,6 +70,12 @@ implemented_mechanisms:
   - read_only_integration_planner
   - cadence_request_planner_without_scheduler_ownership
   - read_only_doctor_and_scope_audit
+  - model_neutral_cognition_request_and_proposal_contracts
+  - deterministic_tick_planning
+  - approval_bound_action_requests
+  - durable_side_effect_receipt_references
+  - idempotent_side_effect_coordination
+  - uncertain_outcome_replay_blocking_and_reconciliation
 
 non_ownership:
   - workspace_identity

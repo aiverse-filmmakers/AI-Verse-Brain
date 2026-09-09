@@ -48,3 +48,15 @@ class CooldownActive(BrainError):
 
 class EvaluationError(BrainError):
     pass
+
+
+class CognitionContractError(BrainError):
+    pass
+
+
+class DuplicateAction(BrainError):
+    pass
+
+
+class UncertainActionOutcome(BrainError):
+    pass

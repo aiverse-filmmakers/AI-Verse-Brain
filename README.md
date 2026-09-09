@@ -4,7 +4,7 @@
 
 AI-Verse Brain is designed to work with capable agents on its own and to integrate deeply with AI-Verse OS and AI-Verse Memory without becoming either of them.
 
-> Status: Phase 4 alpha implementation. The current branch contains the deterministic core, Direction/Attention/Action/Evaluation/Learning engines, and a read-only integration/cadence/doctor slice. Nothing in this branch has been installed into or merged with AI-Verse OS or AI-Verse Memory.
+> Status: Phase 4 alpha implementation. Everything on the current branch remains inside `AI-Verse-Brain`; nothing has been installed into or merged with AI-Verse OS or AI-Verse Memory.
 
 ## Responsibility split
 
@@ -15,23 +15,28 @@ Memory = historical recall / provenance / supersession
 Host   = model and tool execution
 ```
 
-The Brain does not become a second OS, scheduler, memory database, connection manager, capability registry, or autonomous authority source.
+## Current Phase 4 capabilities
 
-## Governing principle
+The Brain now has a deterministic control core, Direction and Attention engines, progress/stall tracking, independent verification, belief freshness, staged learning/evolution, read-only AI-Verse integration inspection, cadence planning, and a read-only doctor.
 
-> The Brain continuously works to reduce the gap between explicitly desired states and observed current states, while respecting user authority, scope isolation, limited attention, available capabilities, evidence, uncertainty, safety, permissions, and resource limits.
+Alpha.4 adds the missing cognition/action boundary:
 
-## Implemented Phase 4 slices
+- model-neutral cognition request/proposal envelopes;
+- models can propose but cannot write lifecycle status, policy, permissions, scope, or privileged fields;
+- deterministic tick planning maps cadence events to bounded reasoning jobs without invoking a model;
+- action requests are separate from proactive recommendations;
+- exact user approvals bind to request ID + idempotency key + scope + action class;
+- every action carries an idempotency key;
+- completed duplicate actions return the previous result without re-executing;
+- autonomous side effects require host idempotency support;
+- side-effect success requires a host receipt;
+- uncertain external outcomes are blocked from automatic retry.
 
-The deterministic core provides scoped canonical Brain objects, lifecycle state machines, authority and permission gates, evidence-backed verification, cadence triggers, optimistic concurrency, runtime locking, path isolation, and canonical write routing.
-
-The functional intelligence slice adds gap/opportunity/initiative discovery, dedupe and cooldown, attention budgets, progress/stall tracking, independent evaluation, belief freshness, staged learning, and controlled strategy evolution.
-
-The integration slice adds **read-only** host inspection, native path contracts, dry-run integration planning, cadence requests, and `doctor`. It explicitly refuses to fall back to standalone storage when an incompatible `AI-VERSE.yaml` is present.
+This preserves the central rule: **the model may reason about what should happen, but deterministic policy decides what may happen and the host proves what did happen.**
 
 ## Integration safety
 
-AI-Verse OS and AI-Verse Memory remain separate repositories. Memory is optional. The Brain only maps their canonical ownership boundaries and does not copy or merge their implementations.
+AI-Verse OS and AI-Verse Memory remain separate repositories. Memory is optional. The Brain does not copy, merge, or mutate those repositories during Phase 4 development.
 
 If a compatible AI-Verse OS v2 host lacks an `extensions.brain` slot, the integration planner reports a blocker rather than editing `AI-VERSE.yaml` implicitly.
 
@@ -44,13 +49,9 @@ ai-verse-brain plan-integration .
 ai-verse-brain plan-cadence --scope operator --proactivity 2
 ```
 
-The current implementation uses only the Python standard library and targets Python 3.9+.
+The implementation uses only the Python standard library and targets Python 3.9+. CI tests Python 3.9 and 3.12 on Ubuntu, macOS, and Windows.
 
-CI tests Python 3.9 and 3.12 on Ubuntu, macOS, and Windows.
-
-## Protocols and research
-
-Implementation contracts live in [`protocol/`](protocol/). The complete Phase 1-3 research and adversarial design work remains preserved in [`research/`](research/README.md).
+Implementation contracts live in [`protocol/`](protocol/). Full Phase 1-3 research remains in [`research/`](research/README.md).
 
 ## License
 
