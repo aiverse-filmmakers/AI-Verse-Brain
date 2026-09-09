@@ -4,16 +4,24 @@ import argparse
 import json
 from pathlib import Path
 from typing import Optional, Sequence
+from uuid import uuid4
 
 from .bridge import BridgeConfig, adapter_doctor
+from .cadence import Trigger
+from .cadence_hooks import render_cadence_hooks
 from .cadence_plan import plan_cadence
 from .controller import BrainController
 from .doctor import run_doctor
 from .errors import BrainError
 from .installation import initialize, plan_init, read_installation_marker
 from .integration import plan_integration
+from .local_host import ReadOnlyContextHost
+from .migration import apply_migration, plan_migration
+from .models import Scope
 from .onboarding import OnboardingService
 from .policy import BrainPolicy, ProactivityLevel
+from .runtime import BrainRuntime
+from .vendor import vendor_bridge_config, vendor_reasoner
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -33,8 +41,43 @@ def build_parser() -> argparse.ArgumentParser:
     adapter = sub.add_parser("adapter-doctor", help="validate and handshake with a JSON subprocess adapter")
     adapter.add_argument("config", help="path to adapter JSON config; credential values must remain outside this file")
 
+    vendor_doc = sub.add_parser("vendor-doctor", help="handshake with a built-in Claude/Codex/Hermes reasoner wrapper")
+    vendor_doc.add_argument("vendor", choices=["claude", "codex", "hermes"])
+    vendor_doc.add_argument("root", nargs="?", default=".")
+    vendor_doc.add_argument("--model")
+    vendor_doc.add_argument("--provider")
+    vendor_doc.add_argument("--binary")
+    vendor_doc.add_argument("--timeout", type=float, default=120.0)
+    vendor_doc.add_argument("--env-name", action="append", default=[], help="explicit credential/environment variable name to forward")
+
+    tick = sub.add_parser("run-tick", help="run one bounded Brain cognition tick with a read-only context host")
+    tick.add_argument("root", nargs="?", default=".")
+    tick.add_argument("--vendor", choices=["claude", "codex", "hermes"], required=True)
+    tick.add_argument("--scope", default="operator")
+    tick.add_argument(
+        "--trigger",
+        choices=[
+            "explicit", "session_start", "session_end", "scheduled_orientation",
+            "scheduled_review", "event", "objective_wake", "blocker_resolution",
+            "external_change", "manual_recovery",
+        ],
+        default="explicit",
+    )
+    tick.add_argument("--idempotency-key")
+    tick.add_argument("--session-id")
+    tick.add_argument("--context-file")
+    tick.add_argument("--model")
+    tick.add_argument("--provider")
+    tick.add_argument("--binary")
+    tick.add_argument("--timeout", type=float, default=120.0)
+    tick.add_argument("--env-name", action="append", default=[])
+
     doctor = sub.add_parser("doctor", help="read-only host, installation, and Brain-state health checks")
     doctor.add_argument("root", nargs="?", default=".")
+
+    migrate = sub.add_parser("migrate", help="plan or apply explicit non-destructive Brain state migration")
+    migrate.add_argument("root", nargs="?", default=".")
+    migrate.add_argument("--apply", action="store_true", help="apply registered migration/metadata refresh; default is dry-run")
 
     plan = sub.add_parser("plan-integration", help="read-only integration plan; performs no installation")
     plan.add_argument("root", nargs="?", default=".")
@@ -43,11 +86,51 @@ def build_parser() -> argparse.ArgumentParser:
     cadence.add_argument("--scope", default="operator")
     cadence.add_argument("--proactivity", type=int, choices=range(0, 5), default=2)
     cadence.add_argument("--background-ticks-per-day", type=int, default=4)
+
+    hooks = sub.add_parser("cadence-hooks", help="emit portable scheduler argv hooks; Brain does not install a scheduler")
+    hooks.add_argument("root", nargs="?", default=".")
+    hooks.add_argument("--vendor", choices=["claude", "codex", "hermes"], required=True)
+    hooks.add_argument("--scope", default="operator")
+    hooks.add_argument("--proactivity", type=int, choices=range(0, 5), default=2)
+    hooks.add_argument("--background-ticks-per-day", type=int, default=4)
+    hooks.add_argument("--context-file")
+    hooks.add_argument("--model")
+    hooks.add_argument("--provider")
     return parser
 
 
 def _print(data: object) -> None:
     print(json.dumps(data, indent=2, sort_keys=True))
+
+
+def _tick_summary(result) -> dict:
+    return {
+        "ok": result.ok,
+        "trigger_type": result.trigger_type,
+        "scope": result.scope,
+        "reasoner_calls": result.reasoner_calls,
+        "applied_refs": [item.object_ref for item in result.applied],
+        "surface_items": [
+            {
+                "object_ref": item.object_ref,
+                "proposal_kind": item.proposal_kind,
+                "notification": item.notification,
+                "reason": item.reason,
+                "attention_fingerprint": item.attention_fingerprint,
+            }
+            for item in result.surface_items
+        ],
+        "errors": [
+            {
+                "stage": item.stage,
+                "request_id": item.request_id,
+                "error_type": item.error_type,
+                "message": item.message,
+                "proposal_index": item.proposal_index,
+            }
+            for item in result.errors
+        ],
+    }
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
@@ -91,19 +174,93 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             _print(adapter_doctor(config))
             return 0
 
+        if args.command == "vendor-doctor":
+            root = str(Path(args.root).resolve())
+            config = vendor_bridge_config(
+                args.vendor,
+                model=args.model,
+                provider=args.provider,
+                timeout_seconds=args.timeout,
+                env_names=args.env_name,
+                binary=args.binary,
+                cwd=root,
+            )
+            report = adapter_doctor(config)
+            report["reasoner_only"] = True
+            report["host_action_authority"] = False
+            _print(report)
+            return 0
+
+        if args.command == "run-tick":
+            root = str(Path(args.root).resolve())
+            if read_installation_marker(root) is None:
+                _print({"ok": False, "error": "Brain is not initialized; run `ai-verse-brain init --apply` first"})
+                return 4
+            scope = Scope(args.scope)
+            reasoner, config = vendor_reasoner(
+                args.vendor,
+                model=args.model,
+                provider=args.provider,
+                timeout_seconds=args.timeout,
+                env_names=args.env_name,
+                binary=args.binary,
+                cwd=root,
+            )
+            adapter_doctor(config)
+            host = ReadOnlyContextHost(root, context_file=args.context_file)
+            trigger = Trigger(
+                trigger_type=args.trigger,
+                scope=scope,
+                idempotency_key=args.idempotency_key or f"cli:{args.trigger}:{scope.value}:{uuid4()}",
+            )
+            result = BrainRuntime(root).run_tick(
+                trigger,
+                host=host,
+                reasoner=reasoner,
+                session_id=args.session_id,
+            )
+            _print(_tick_summary(result))
+            return 0 if result.ok else 5
+
         if args.command == "doctor":
             report = run_doctor(str(Path(args.root)))
             _print(report.to_dict())
             return 0 if report.ok else 2
+
+        if args.command == "migrate":
+            root = str(Path(args.root))
+            if args.apply:
+                _print(apply_migration(root).to_dict())
+                return 0
+            migration = plan_migration(root)
+            _print(migration.to_dict())
+            return 0 if migration.safe_to_apply else 3
+
         if args.command == "plan-integration":
             plan = plan_integration(str(Path(args.root)))
             _print(plan.to_dict())
             return 0 if plan.safe_to_apply else 3
+
         if args.command == "plan-cadence":
             policy = BrainPolicy(proactivity=ProactivityLevel(args.proactivity))
             policy.resources.max_background_ticks_per_day = args.background_ticks_per_day
             requests = plan_cadence(policy, args.scope)
             _print([item.to_dict() for item in requests])
+            return 0
+
+        if args.command == "cadence-hooks":
+            _print(
+                render_cadence_hooks(
+                    str(Path(args.root).resolve()),
+                    vendor=args.vendor,
+                    scope=args.scope,
+                    proactivity=args.proactivity,
+                    background_ticks_per_day=args.background_ticks_per_day,
+                    model=args.model,
+                    provider=args.provider,
+                    context_file=args.context_file,
+                )
+            )
             return 0
         return 1
     except (BrainError, OSError, ValueError, json.JSONDecodeError) as exc:

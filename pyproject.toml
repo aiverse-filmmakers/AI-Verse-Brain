@@ -1,17 +1,36 @@
 [build-system]
-requires = ["setuptools>=61"]
+requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "ai-verse-brain"
 dynamic = ["version"]
-description = "Universal deterministic intelligence control layer for AI agents"
+description = "Universal intelligence layer for AI agents: intent, initiative, verification, learning, and controlled self-improvement"
 requires-python = ">=3.9"
 readme = "README.md"
+license = {file = "LICENSE"}
+authors = [{name = "AI-Verse"}]
+keywords = ["ai", "agents", "agent-os", "reasoning", "goals", "planning", "memory", "automation"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Operating System :: OS Independent",
+]
 dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/aiverse-filmmakers/AI-Verse-Brain"
+Repository = "https://github.com/aiverse-filmmakers/AI-Verse-Brain"
+Issues = "https://github.com/aiverse-filmmakers/AI-Verse-Brain/issues"
 
 [project.scripts]
 ai-verse-brain = "aiverse_brain.cli:main"
+ai-verse-brain-vendor-bridge = "aiverse_brain.vendor_bridge:main"
 
 [tool.setuptools]
 packages = ["aiverse_brain"]
