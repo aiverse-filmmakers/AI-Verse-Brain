@@ -2,8 +2,8 @@ schema_version: "0.1"
 architecture: intent-cognition-initiative-learning
 package:
   name: AI-Verse Brain
-  version: "0.1.0-alpha.2"
-  status: phase-4-direction-action-learning-slice
+  version: "0.1.0-alpha.3"
+  status: phase-4-integration-cadence-doctor-slice
   python: ">=3.9"
 
 purpose: "Universal intelligence layer for persistent intent, initiative, bounded execution, verification, learning, and controlled self-improvement."
@@ -21,6 +21,8 @@ principles:
   silence_is_valid: true
   cross_scope_access_is_explicit: true
   provenance_for_durable_inference: true
+  incompatible_host_never_falls_back_silently: true
+  integration_planning_is_read_only: true
 
 modes:
   - ai-verse-os-v2
@@ -55,6 +57,11 @@ implemented_mechanisms:
   - evaluation_application_and_independence_levels
   - derived_belief_freshness
   - evidence_gated_learning_and_strategy_promotion
+  - read_only_host_detection_and_path_contracts
+  - incompatible_ai_verse_fail_closed
+  - read_only_integration_planner
+  - cadence_request_planner_without_scheduler_ownership
+  - read_only_doctor_and_scope_audit
 
 non_ownership:
   - workspace_identity

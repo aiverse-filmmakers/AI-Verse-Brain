@@ -11,6 +11,7 @@ from typing import Iterable, Iterator, List, Optional
 from uuid import uuid4
 
 from .errors import LockConflict, RevisionConflict, ScopeError, ValidationError
+from .integration import HostMode, inspect_host
 from .models import BrainObject, Scope, utc_now
 from .validation import validate_object
 
@@ -44,11 +45,11 @@ class StorageLayout:
     @classmethod
     def detect(cls, root: Path) -> "StorageLayout":
         root = Path(root).resolve()
-        manifest = root / "AI-VERSE.yaml"
-        if manifest.exists() and (root / "operator").is_dir() and (root / "workspaces").is_dir():
-            text = manifest.read_text(encoding="utf-8", errors="replace")
-            if 'schema_version: "2.' in text and "architecture: unified-workspace" in text:
-                return cls(root, "native")
+        report = inspect_host(str(root))
+        if report.mode == HostMode.AI_VERSE_OS_V2:
+            return cls(root, "native")
+        if report.mode == HostMode.INCOMPATIBLE_AI_VERSE:
+            raise ScopeError("AI-Verse manifest exists but is incompatible; refusing standalone Brain fallback")
         return cls(root, "standalone")
 
     def state_root(self, scope: Scope) -> Path:

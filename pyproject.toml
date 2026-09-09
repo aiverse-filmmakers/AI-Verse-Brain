@@ -4,11 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ai-verse-brain"
-version = "0.1.0a2"
+version = "0.1.0a3"
 description = "Universal deterministic intelligence control layer for AI agents"
 requires-python = ">=3.9"
 readme = "README.md"
 dependencies = []
+
+[project.scripts]
+ai-verse-brain = "aiverse_brain.cli:main"
 
 [tool.setuptools]
 packages = ["aiverse_brain"]

@@ -4,7 +4,7 @@
 
 AI-Verse Brain is designed to work with capable agents on its own and to integrate deeply with AI-Verse OS and AI-Verse Memory without becoming either of them.
 
-> Status: Phase 4 implementation is in progress. The current branch contains the deterministic core plus the first functional Direction, Attention, Action/Progress, Evaluation, Freshness, and Learning/Evolution engines. It is still an alpha development branch and is not installed into AI-Verse OS or AI-Verse Memory.
+> Status: Phase 4 alpha implementation. The current branch contains the deterministic core, Direction/Attention/Action/Evaluation/Learning engines, and a read-only integration/cadence/doctor slice. Nothing in this branch has been installed into or merged with AI-Verse OS or AI-Verse Memory.
 
 ## Responsibility split
 
@@ -21,81 +21,36 @@ The Brain does not become a second OS, scheduler, memory database, connection ma
 
 > The Brain continuously works to reduce the gap between explicitly desired states and observed current states, while respecting user authority, scope isolation, limited attention, available capabilities, evidence, uncertainty, safety, permissions, and resource limits.
 
-## What Phase 4 now implements
+## Implemented Phase 4 slices
 
-### Deterministic core
+The deterministic core provides scoped canonical Brain objects, lifecycle state machines, authority and permission gates, evidence-backed verification, cadence triggers, optimistic concurrency, runtime locking, path isolation, and canonical write routing.
 
-- canonical Brain objects with immutable scope, revision numbers, atomic writes, and per-object locks;
-- lifecycle state machines for intent, practices, opportunities, initiatives, objectives, beliefs, learning, strategies, and policies;
-- explicit authority tiers and privileged-field protection;
-- proactivity levels separated from action permissions;
-- symbolic write routing so Brain state cannot silently replace OS or Memory truth;
-- cadence trigger envelopes and idempotent receipts without implementing a scheduler;
-- native AI-Verse path detection and standalone storage;
-- path traversal, symlink escape, duplicate side-effect, and stale-writer protections.
+The functional intelligence slice adds gap/opportunity/initiative discovery, dedupe and cooldown, attention budgets, progress/stall tracking, independent evaluation, belief freshness, staged learning, and controlled strategy evolution.
 
-### Direction and initiative
+The integration slice adds **read-only** host inspection, native path contracts, dry-run integration planning, cadence requests, and `doctor`. It explicitly refuses to fall back to standalone storage when an incompatible `AI-VERSE.yaml` is present.
 
-- model-proposed gaps grounded in current-state and desired-state references;
-- opportunity fingerprints, exact dedupe, dismissal/rejection cooldowns, and active-gap checks;
-- hard eligibility gates before scoring;
-- inspectable initiative ranking;
-- qualified opportunity -> proposed initiative promotion with source linkage;
-- active-initiative WIP caps.
+## Integration safety
 
-### Attention and proactivity
+AI-Verse OS and AI-Verse Memory remain separate repositories. Memory is optional. The Brain only maps their canonical ownership boundaries and does not copy or merge their implementations.
 
-- P0-P4 proactivity independent from execution authority;
-- notification cooldowns by fingerprint;
-- per-session proactive-item limits;
-- daily interruption budgets;
-- interruption downgrade to normal surfacing rather than repeated nagging;
-- disposable attention ledgers with bounded retention.
-
-### Action, progress, and verification
-
-- objective completion criteria start unverified;
-- tool activity alone never counts as progress;
-- state change plus evidence is required for meaningful progress;
-- progress ledger, attempt budget, non-progress stall detection, blocker state, and parallel-objective limits;
-- V0-V3 verification levels;
-- fresh-context and independent-evaluator requirements for higher verification levels;
-- criterion-level evaluation evidence;
-- missing evidence resolves to `INSUFFICIENT_EVIDENCE`, never silent success.
-
-### Beliefs, learning, and evolution
-
-- derived model beliefs track epistemic state, confidence, evidence, observation time, expiry, and maximum age;
-- stale and contradicted beliefs cannot masquerade as current truth;
-- contradicted beliefs require verified evidence to reactivate;
-- learning progresses through evidence gates instead of instant self-belief;
-- user-confirmation evidence cannot be fabricated by lower-authority sources;
-- E1/E2 strategy rules require evaluations and regression checks;
-- E3/E4 cannot be runtime-promoted: core/privileged evolution must go through tested code/review rather than self-rewriting.
-
-## Protocol contracts
-
-- [`protocol/BRAIN-PROTOCOL.md`](protocol/BRAIN-PROTOCOL.md): runtime order and ownership boundaries.
-- [`protocol/DIRECTION-ATTENTION.md`](protocol/DIRECTION-ATTENTION.md): gap/opportunity/initiative and attention semantics.
-- [`protocol/ACTION-VERIFICATION.md`](protocol/ACTION-VERIFICATION.md): objective progress and evidence-backed completion.
-- [`protocol/LEARNING-EVOLUTION.md`](protocol/LEARNING-EVOLUTION.md): belief freshness, learning stages, and controlled strategy evolution.
-- [`protocol/WRITE-CONTRACT.md`](protocol/WRITE-CONTRACT.md): canonical write ownership.
-
-The design evidence remains preserved in [`research/`](research/README.md), especially the Phase 3 specification and adversarial QC risk matrix.
+If a compatible AI-Verse OS v2 host lacks an `extensions.brain` slot, the integration planner reports a blocker rather than editing `AI-VERSE.yaml` implicitly.
 
 ## Development
 
 ```bash
 python -m unittest discover -s tests -v
+ai-verse-brain doctor .
+ai-verse-brain plan-integration .
+ai-verse-brain plan-cadence --scope operator --proactivity 2
 ```
 
-The current implementation intentionally uses only the Python standard library and targets Python 3.9+.
+The current implementation uses only the Python standard library and targets Python 3.9+.
 
 CI tests Python 3.9 and 3.12 on Ubuntu, macOS, and Windows.
 
-## Integration status
+## Protocols and research
 
-AI-Verse OS and AI-Verse Memory are **not dependencies of the core package and have not been modified by Phase 4**. Native-mode support currently means the Brain understands the AI-Verse path contract when placed in a compatible host fixture. Installer/registration work remains a later Phase 4 slice and must preserve the one-owner-per-state rule.
+Implementation contracts live in [`protocol/`](protocol/). The complete Phase 1-3 research and adversarial design work remains preserved in [`research/`](research/README.md).
 
 ## License
 

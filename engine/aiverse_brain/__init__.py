@@ -2,26 +2,23 @@
 
 from .authority import AuthorityTier
 from .controller import BrainController
-from .direction import GapProposal, InitiativeProposal, OpportunityProposal
-from .evaluator import CriterionVerdict, EvaluationResult, Independence
+from .doctor import run_doctor
+from .integration import HostMode, inspect_host, native_path_contract, plan_integration
 from .models import BrainObject, EvidenceRef, Scope
 from .policy import ProactivityLevel
-from .progress import AttemptObservation
 
 __all__ = [
     "AuthorityTier",
-    "AttemptObservation",
     "BrainController",
     "BrainObject",
-    "CriterionVerdict",
-    "EvaluationResult",
     "EvidenceRef",
-    "GapProposal",
-    "Independence",
-    "InitiativeProposal",
-    "OpportunityProposal",
     "Scope",
     "ProactivityLevel",
+    "HostMode",
+    "inspect_host",
+    "native_path_contract",
+    "plan_integration",
+    "run_doctor",
 ]
 
-__version__ = "0.1.0a2"
+__version__ = "0.1.0a3"
