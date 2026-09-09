@@ -52,8 +52,8 @@ class HostDetectionTests(unittest.TestCase):
             workspace = native_path_contract(temp, "workspace:alpha")
             after = snapshot(root)
             self.assertEqual(report.mode, HostMode.AI_VERSE_OS_V2)
-            self.assertTrue(operator.brain_state.endswith("operator/brain"))
-            self.assertTrue(workspace.current_context.endswith("workspaces/alpha/context/CURRENT.md"))
+            self.assertEqual(Path(operator.brain_state).parts[-2:], ("operator", "brain"))
+            self.assertEqual(Path(workspace.current_context).parts[-4:], ("workspaces", "alpha", "context", "CURRENT.md"))
             self.assertEqual(before, after)
             self.assertFalse((root / ".ai-verse-brain").exists())
 
