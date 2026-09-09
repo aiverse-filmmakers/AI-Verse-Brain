@@ -77,9 +77,10 @@ class VersionParityTests(unittest.TestCase):
 
     def test_readme_preserves_repository_separation_and_install_safety(self):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        runtime = (ROOT / "protocol" / "RUNTIME-PIPELINE.md").read_text(encoding="utf-8")
         self.assertIn("Nothing in this work has been installed into or merged with AI-Verse OS or AI-Verse Memory", readme)
         self.assertIn("reports a blocker rather than editing `AI-VERSE.yaml` implicitly", readme)
-        self.assertIn("does **not** call `host.notify_user` automatically", (ROOT / "protocol" / "RUNTIME-PIPELINE.md").read_text(encoding="utf-8"))
+        self.assertIn("does not call `host.notify_user` automatically", runtime)
         self.assertIn("No state is written by that command", readme)
 
 
