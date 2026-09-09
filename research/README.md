@@ -1,6 +1,8 @@
 # AI-Verse Brain Research
 
-This directory preserves the research that led to the AI-Verse Brain concept before implementation begins.
+This directory preserves the **full pre-implementation research record** that led to the AI-Verse Brain concept.
+
+The purpose of keeping this inside the repository is to make the research durable even if chat context is compressed or lost. These are intentionally detailed research artifacts, not short summaries.
 
 The Brain is being designed as a **universal intelligence layer for AI agents**. It should work independently with capable agents, but integrate especially well with AI-Verse OS and AI-Verse Memory.
 
@@ -19,15 +21,19 @@ AI-Verse Memory
 
 The Brain must not become a second OS or a second memory store.
 
-## Research phases
+## Research files
 
-- [Phase 1 - Landscape Research](PHASE-1-LANDSCAPE.md)
-  - Survey of leading repos and architectures relevant to persistent intent, goal pursuit, proactive agents, self-improvement, reflection, learning, identity and long-horizon agency.
-  - Extracts the strongest architectural ideas from each system.
+- [Phase 1 - Full Landscape Research](PHASE-1-LANDSCAPE.md)
+  - Detailed repo-by-repo research across LifeOS, Hermes, AIS-OS, Letta, OpenClaw, ACE, Hermes Self-Evolution, GEPA, Voyager, Generative Agents, Reflexion, PersonalOS, Pascal Jarvis, DeerFlow, Honcho, LangMem, Agent Zero, Magentic-One and Anthropic long-running-agent work.
+  - Preserves the architectural ideas, useful mechanisms, warnings, boundaries and conclusions extracted from each.
 
-- [Phase 2 - Architecture Dissection](PHASE-2-ARCHITECTURE-DISSECTION.md)
-  - Goes below feature lists into control loops, state models, evaluators, planning patterns, initiative systems, verification, user modeling, attention management and controlled evolution.
-  - Produces the first coherent conceptual architecture for AI-Verse Brain.
+- [Phase 2 - Full Architecture Dissection](PHASE-2-ARCHITECTURE-DISSECTION.md)
+  - Detailed analysis of the control architecture beneath those systems.
+  - Preserves the Direction Loop, Action Loop, Learning/Evolution Loop, authority hierarchy, initiative model, attention economy, verification model, stall detection, epistemic lifecycle, strategy evolution, self-improvement boundary, Brain planes, OS/Memory integration boundaries and anti-patterns.
+
+- [Research Source Map](SOURCE-MAP.md)
+  - The repositories and specific public implementation/documentation locations surfaced during the research.
+  - Keeps the original sources available so future design decisions can be re-checked against the source architectures rather than relying on memory.
 
 ## Current research thesis
 
@@ -56,4 +62,4 @@ The Brain may improve **how** it pursues user-approved goals, but it must not si
 
 ## Status
 
-These files are research artifacts, not the final AI-Verse Brain specification. The next phase should convert the findings into canonical primitives, authority rules, state machines, schemas, adaptive cognition loops, integration contracts and the repository architecture.
+These files are the detailed research record, not the final AI-Verse Brain specification. The next phase should convert the findings into canonical primitives, authority rules, state machines, schemas, adaptive cognition loops, integration contracts and the repository architecture.
