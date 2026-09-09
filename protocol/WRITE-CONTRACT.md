@@ -1,33 +1,57 @@
-# Brain Write Contract
+# AI-Verse Brain Write Contract
 
-Every durable write must be classified before persistence.
+Every durable write has exactly one canonical owner.
 
-| Information | Canonical owner in AI-Verse native mode |
-|---|---|
-| stable identity / enduring preference | OS `operator/profile/` |
-| current operator/workspace state | OS `context/` |
-| settled choice and reasoning | OS `decisions/` |
-| historical event / experience | AI-Verse Memory when installed, otherwise host history route |
-| reusable domain knowledge | OS `knowledge/` |
-| repeatable execution | skill / automation candidate through OS |
-| Brain intent / practice / gap / opportunity / initiative / objective / model / evaluation / learning / strategy / policy | scoped Brain namespace |
-| transient thought | nowhere |
+## Brain-owned
 
-## Prohibited writes
+Brain may canonically own:
 
-The Brain core must not:
+- intent objects it is authorized to hold;
+- practices;
+- gaps;
+- opportunities;
+- initiatives;
+- objectives;
+- derived model beliefs;
+- evaluations;
+- learning objects;
+- strategy rules;
+- Brain policy objects created/changed only with required user authority.
 
-- copy canonical current context into a parallel permanent Brain current-state file;
-- copy general historical memory into its own database;
-- write credentials or secrets;
-- create new OS workspaces, connection registries, capability registries, or scheduler implementations as a side effect of reasoning;
-- persist external instructions as privileged policy;
-- silently broaden scope or permissions.
+In native AI-Verse mode these live only under `operator/brain/` or `workspaces/<id>/brain/`.
 
-## Concurrency
+## Not Brain-owned
 
-Canonical Brain objects use immutable IDs, immutable scope, revision numbers, and optimistic concurrency. Silent last-write-wins is forbidden.
+Brain must route rather than duplicate:
 
-## Derived state
+```text
+stable identity / enduring preference -> OS profile
+current canonical state             -> OS context
+settled decision                     -> OS decisions
+historical event / experience        -> Memory history
+reusable domain knowledge            -> OS knowledge
+repeatable execution                 -> capability/skill candidate
+transient thought                     -> no durable canonical write
+```
 
-Runtime projections, trigger receipts, locks, queues, indexes, and temporary evaluations are disposable and must never become the only source of user intent.
+Brain does not create a parallel copy after routing a write elsewhere.
+
+## Runtime-only state
+
+The following may exist under Brain runtime storage and are disposable:
+
+- object locks;
+- trigger receipts;
+- direction coordination locks;
+- attention delivery/cooldown ledger;
+- temporary queues/projections/checkpoints that can be reconstructed.
+
+Runtime state is not allowed to become the only record of user intent, initiative acceptance, objective completion, dismissal, rejection, learning, or policy.
+
+## Native mode rule
+
+Compatible AI-Verse native mode uses the OS's existing operator/workspace boundaries. Brain does not modify workspace identity, OS context, Memory history, scheduler implementation, capabilities, connections, or secrets as part of its own canonical state.
+
+## Standalone rule
+
+Standalone mode stores Brain-owned state under `.ai-verse-brain/`. Host adapters may map external context/history providers but may not redefine Brain-owned objects into a second OS or memory hierarchy.

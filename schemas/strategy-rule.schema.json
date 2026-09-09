@@ -10,7 +10,9 @@
     "exclusions": {"type": "array", "items": {"type": "string"}},
     "helpful_evidence_count": {"type": "integer", "minimum": 0},
     "harmful_evidence_count": {"type": "integer", "minimum": 0},
-    "evaluation_refs": {"type": "array", "items": {"type": "string"}},
+    "evaluation_refs": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+    "regression_passed": {"type": "boolean"},
+    "source_learning_ref": {"type": ["string", "null"]},
     "previous_revision_ref": {"type": ["string", "null"]}
   },
   "additionalProperties": true
