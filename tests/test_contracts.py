@@ -40,11 +40,16 @@ class SchemaContractTests(unittest.TestCase):
     def test_shipment_schemas_exist(self):
         installation = self.load_schema("installation.schema.json")
         onboarding = self.load_schema("onboarding-answers.schema.json")
+        adapter = self.load_schema("adapter-config.schema.json")
         self.assertTrue({"state_schema_version", "package_version", "installation_id"}.issubset(installation["required"]))
         self.assertFalse(installation["additionalProperties"])
         self.assertFalse(onboarding["additionalProperties"])
         self.assertIn("desired_state", onboarding["properties"])
         self.assertIn("success_definition", onboarding["properties"])
+        self.assertFalse(adapter["additionalProperties"])
+        self.assertEqual(adapter["properties"]["transport"]["const"], "json-subprocess")
+        self.assertEqual(adapter["properties"]["command"]["type"], "array")
+        self.assertTrue(adapter["properties"]["env_names"]["uniqueItems"])
 
     def test_protocol_boundaries_exist(self):
         integration = (ROOT / "protocol" / "INTEGRATION-CADENCE.md").read_text(encoding="utf-8")
@@ -60,20 +65,29 @@ class SchemaContractTests(unittest.TestCase):
         self.assertIn("The installer MUST NOT", shipment)
         self.assertIn("There is no destructive implicit migration path", shipment)
         self.assertIn("Only answers supplied through an explicit onboarding apply operation", shipment)
+        adapter = (ROOT / "protocol" / "ADAPTER-BRIDGE.md").read_text(encoding="utf-8")
+        self.assertIn("shell=False", adapter)
+        self.assertIn("stores environment variable **names**, never credential values", adapter)
+        self.assertIn("cannot bypass Brain action permissions", adapter)
+        self.assertIn("fails closed", adapter)
 
 
 class VersionParityTests(unittest.TestCase):
-    def test_manifest_package_module_and_installer_versions_are_in_sync(self):
+    def test_manifest_package_and_python_version_source_are_in_sync(self):
         brain = (ROOT / "BRAIN.yaml").read_text(encoding="utf-8")
         pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+        version = (ROOT / "engine" / "aiverse_brain" / "_version.py").read_text(encoding="utf-8")
         module = (ROOT / "engine" / "aiverse_brain" / "__init__.py").read_text(encoding="utf-8")
         installer = (ROOT / "engine" / "aiverse_brain" / "installation.py").read_text(encoding="utf-8")
-        self.assertIn('version: "0.1.0-alpha.6"', brain)
+        self.assertIn('version: "0.1.0-alpha.7"', brain)
         self.assertIn('state_schema_version: "1.0"', brain)
-        self.assertIn('version = "0.1.0a6"', pyproject)
-        self.assertIn('__version__ = "0.1.0a6"', module)
-        self.assertIn('PACKAGE_VERSION = "0.1.0a6"', installer)
-        self.assertIn('STATE_SCHEMA_VERSION = "1.0"', installer)
+        self.assertIn('__version__ = "0.1.0a7"', version)
+        self.assertIn('DISPLAY_VERSION = "0.1.0-alpha.7"', version)
+        self.assertIn('STATE_SCHEMA_VERSION = "1.0"', version)
+        self.assertIn('dynamic = ["version"]', pyproject)
+        self.assertIn('version = {attr = "aiverse_brain._version.__version__"}', pyproject)
+        self.assertIn('from ._version import __version__', module)
+        self.assertIn('PACKAGE_VERSION = __version__', installer)
 
     def test_readme_preserves_repository_separation_and_install_safety(self):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
@@ -82,6 +96,7 @@ class VersionParityTests(unittest.TestCase):
         self.assertIn("reports a blocker rather than editing `AI-VERSE.yaml` implicitly", readme)
         self.assertIn("does not call `host.notify_user` automatically", runtime)
         self.assertIn("No state is written by that command", readme)
+        self.assertIn("advertising an operation never grants authority", readme)
 
 
 if __name__ == "__main__":
