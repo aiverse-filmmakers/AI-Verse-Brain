@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ai-verse-brain"
-version = "0.1.0a5"
+dynamic = ["version"]
 description = "Universal deterministic intelligence control layer for AI agents"
 requires-python = ">=3.9"
 readme = "README.md"
@@ -16,3 +16,6 @@ ai-verse-brain = "aiverse_brain.cli:main"
 [tool.setuptools]
 packages = ["aiverse_brain"]
 package-dir = {aiverse_brain = "engine/aiverse_brain"}
+
+[tool.setuptools.dynamic]
+version = {attr = "aiverse_brain._version.__version__"}

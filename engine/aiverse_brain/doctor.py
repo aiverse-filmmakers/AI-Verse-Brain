@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 from typing import Dict, List
 
+from .installation import STATE_SCHEMA_VERSION, installation_marker_path, read_installation_marker
 from .integration import HostMode, inspect_host
 
 
@@ -63,6 +64,57 @@ def _scan_state_root(report: DoctorReport, state_root: Path, expected_scope: str
                 report.add("kind-integrity", "FAIL", f"{path} declares kind {data.get('kind')!r}, expected {expected_kind!r}")
 
 
+def _has_confirmed_intent(state_root: Path, subtype: str) -> bool:
+    directory = state_root / "intent"
+    if not directory.is_dir():
+        return False
+    for path in directory.glob("*.json"):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if data.get("status") in {"CONFIRMED", "ACTIVE"} and (data.get("payload") or {}).get("subtype") == subtype:
+            return True
+    return False
+
+
+def _check_installation(report: DoctorReport, root: Path, state_root: Path) -> None:
+    marker_path = installation_marker_path(str(root))
+    if marker_path is None:
+        report.add("installation", "FAIL", "host mode has no safe installation marker path")
+        return
+    if not marker_path.exists():
+        if state_root.exists():
+            report.add("installation", "WARN", f"Brain state exists without an installation marker: {marker_path}")
+        else:
+            report.add("installation", "WARN", "Brain is not initialized; run `ai-verse-brain init --apply`")
+        return
+    try:
+        marker = read_installation_marker(str(root))
+    except Exception as exc:
+        report.add("installation", "FAIL", str(exc))
+        return
+    if marker is None:
+        report.add("installation", "FAIL", "installation marker could not be resolved")
+        return
+    report.add(
+        "installation",
+        "PASS",
+        f"installation marker valid; state schema {marker.get('state_schema_version')} (supported {STATE_SCHEMA_VERSION})",
+    )
+    desired = _has_confirmed_intent(state_root, "desired_state")
+    success = _has_confirmed_intent(state_root, "success_definition")
+    if desired and success:
+        report.add("onboarding", "PASS", "explicit desired state and success definition are present")
+    else:
+        missing = []
+        if not desired:
+            missing.append("desired_state")
+        if not success:
+            missing.append("success_definition")
+        report.add("onboarding", "WARN", "onboarding incomplete; missing " + ", ".join(missing))
+
+
 def run_doctor(root: str) -> DoctorReport:
     base = Path(root).resolve()
     host = inspect_host(str(base))
@@ -77,7 +129,9 @@ def run_doctor(root: str) -> DoctorReport:
 
     report.add("host-contract", "PASS", f"detected {host.mode.value}")
     if host.mode == HostMode.STANDALONE:
-        _scan_state_root(report, base / ".ai-verse-brain", "operator")
+        state_root = base / ".ai-verse-brain"
+        _scan_state_root(report, state_root, "operator")
+        _check_installation(report, base, state_root)
         return report
 
     if (base / ".ai-verse-brain").exists():
@@ -91,7 +145,9 @@ def run_doctor(root: str) -> DoctorReport:
         report.add("brain-extension-slot", "WARN", "extensions.brain is absent; do not patch the OS manifest implicitly")
 
     report.add("memory", "INFO", "AI-Verse Memory detected" if host.memory_detected else "AI-Verse Memory not detected; it remains optional")
-    _scan_state_root(report, base / "operator" / "brain", "operator")
+    operator_state = base / "operator" / "brain"
+    _scan_state_root(report, operator_state, "operator")
+    _check_installation(report, base, operator_state)
     workspaces = base / "workspaces"
     for workspace in sorted(workspaces.iterdir() if workspaces.is_dir() else []):
         if workspace.is_dir() and not workspace.name.startswith("."):
