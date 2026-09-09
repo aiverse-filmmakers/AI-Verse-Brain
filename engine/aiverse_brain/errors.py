@@ -32,3 +32,7 @@ class DuplicateTrigger(BrainError):
 
 class PermissionDenied(BrainError):
     pass
+
+
+class PolicyViolation(BrainError):
+    pass

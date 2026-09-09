@@ -11,7 +11,8 @@
     "score_components": {"type": "object"},
     "next_action": {"type": ["string", "null"]},
     "review_after": {"type": ["string", "null"]},
-    "invalidation_conditions": {"type": "array", "items": {"type": "string"}}
+    "invalidation_conditions": {"type": "array", "items": {"type": "string"}},
+    "evaluation_refs": {"type": "array", "items": {"type": "string"}}
   },
   "additionalProperties": true
 }

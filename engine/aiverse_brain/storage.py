@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from datetime import datetime, timezone
 import hashlib
 import json
 import os
@@ -11,9 +10,9 @@ import time
 from typing import Iterable, Iterator, List, Optional
 from uuid import uuid4
 
-from .errors import LockConflict, RevisionConflict, ScopeError
+from .errors import LockConflict, RevisionConflict, ScopeError, ValidationError
 from .models import BrainObject, Scope, utc_now
-from .validation import validate_payload
+from .validation import validate_object
 
 _KIND_DIR = {
     "intent": "intent", "practice": "practices", "gap": "gaps", "opportunity": "opportunities",
@@ -28,6 +27,11 @@ def _inside(path: Path, root: Path) -> bool:
         return True
     except ValueError:
         return False
+
+
+def _validate_lookup_id(object_id: str) -> None:
+    if not object_id or object_id in {".", ".."} or "/" in object_id or "\\" in object_id:
+        raise ValidationError("object id must be non-empty and path-safe")
 
 
 class StorageLayout:
@@ -77,11 +81,21 @@ class StorageLayout:
             return self.root / "runtime" / "ai-verse-brain"
         return self.root / ".ai-verse-brain" / "runtime"
 
+    def _safe_kind_dir(self, scope: Scope, kind: str) -> Path:
+        if kind not in _KIND_DIR:
+            raise ValidationError(f"unknown object kind: {kind}")
+        state = self.state_root(scope)
+        directory = state / _KIND_DIR[kind]
+        if directory.exists() and not _inside(directory, state):
+            raise ScopeError("Brain kind directory escapes canonical state root")
+        return directory
+
     def object_path(self, obj: BrainObject) -> Path:
-        return self.state_root(obj.scope) / _KIND_DIR[obj.kind] / f"{obj.id}.json"
+        _validate_lookup_id(obj.id)
+        return self._safe_kind_dir(obj.scope, obj.kind) / f"{obj.id}.json"
 
     def kind_dir(self, scope: Scope, kind: str) -> Path:
-        return self.state_root(scope) / _KIND_DIR[kind]
+        return self._safe_kind_dir(scope, kind)
 
 
 class ObjectStore:
@@ -138,12 +152,13 @@ class ObjectStore:
             self._release_if_owned(path, token)
 
     def load(self, kind: str, scope: str, object_id: str) -> BrainObject:
+        _validate_lookup_id(object_id)
         s = Scope(scope)
         path = self.layout.kind_dir(s, kind) / f"{object_id}.json"
         return BrainObject.from_dict(json.loads(path.read_text(encoding="utf-8")))
 
     def save(self, obj: BrainObject, *, expected_revision: Optional[int]) -> BrainObject:
-        validate_payload(obj.kind, obj.payload)
+        validate_object(obj.kind, obj.status, obj.payload)
         path = self.layout.object_path(obj)
         path.parent.mkdir(parents=True, exist_ok=True)
         with self._lock(obj):

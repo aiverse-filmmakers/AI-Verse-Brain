@@ -3,8 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
-from .authority import AuthorityTier, assert_policy_mutation
+from .authority import AuthorityTier, assert_policy_mutation, require_user_authority
 from .cadence import Trigger, TriggerLedger
+from .errors import PolicyViolation, ValidationError
 from .models import BrainObject, Scope
 from .policy import BrainPolicy
 from .state_machine import assert_creation, assert_transition
@@ -24,6 +25,8 @@ class Orientation:
 class BrainController:
     """Deterministic state/control core. It does not perform model reasoning or external side effects."""
 
+    ACTIVE_INITIATIVE_STATES = {"ACCEPTED", "ACTIVE", "WAITING", "BLOCKED", "STALLED", "REVIEW"}
+
     def __init__(self, root: str, policy: Optional[BrainPolicy] = None):
         self.layout = StorageLayout.detect(root)
         self.store = ObjectStore(self.layout)
@@ -36,9 +39,47 @@ class BrainController:
         obj = BrainObject.new(kind, scope, status, payload, created_by=actor)
         return self.store.save(obj, expected_revision=-1)
 
+    def _assert_initiative_capacity(self, scope: str) -> None:
+        active = self.store.list("initiative", scope, self.ACTIVE_INITIATIVE_STATES)
+        if len(active) >= self.policy.attention.max_active_initiatives:
+            raise PolicyViolation(f"active initiative WIP cap reached ({self.policy.attention.max_active_initiatives})")
+
+    @staticmethod
+    def _assert_objective_passable(obj: BrainObject) -> None:
+        criteria = obj.payload.get("criteria", [])
+        if not criteria:
+            raise ValidationError("objective cannot pass without criteria")
+        invalid = [c.get("id", "?") for c in criteria if c.get("status") not in {"passed", "not_applicable"}]
+        if invalid:
+            raise ValidationError("objective cannot pass while criteria remain unverified/failed: " + ", ".join(invalid))
+        passed = [c for c in criteria if c.get("status") == "passed"]
+        if not passed:
+            raise ValidationError("objective cannot pass without at least one passed criterion")
+        if any(not c.get("evidence_refs") for c in passed):
+            raise ValidationError("every passed criterion requires evidence_refs")
+
+    @staticmethod
+    def _assert_initiative_completable(obj: BrainObject) -> None:
+        if not obj.payload.get("evaluation_refs"):
+            raise ValidationError("initiative completion requires evaluation_refs")
+
+    @staticmethod
+    def _assert_strategy_promotion(obj: BrainObject, source: AuthorityTier) -> None:
+        tier = obj.payload.get("evolution_tier")
+        if tier in {"E3", "E4"}:
+            require_user_authority(source, f"promotion of privileged strategy tier {tier}")
+
     def transition(self, kind: str, scope: str, object_id: str, target: str, *, source: AuthorityTier, actor: str) -> BrainObject:
         obj = self.store.load(kind, scope, object_id)
         assert_transition(kind, obj.status, target, source)
+        if kind == "initiative" and target == "ACCEPTED":
+            self._assert_initiative_capacity(scope)
+        if kind == "objective" and target == "PASSED":
+            self._assert_objective_passable(obj)
+        if kind == "initiative" and target == "COMPLETED":
+            self._assert_initiative_completable(obj)
+        if kind == "strategy_rule" and target == "ACTIVE":
+            self._assert_strategy_promotion(obj, source)
         expected = obj.revision
         obj.status = target
         obj.updated_by = actor
@@ -56,7 +97,7 @@ class BrainController:
         Scope(scope)
         goals = [o.to_dict() for o in self.store.list("intent", scope, {"CONFIRMED", "ACTIVE"}) if o.payload.get("subtype") in {"goal", "desired_state"}]
         practices = [o.to_dict() for o in self.store.list("practice", scope, {"ACTIVE"})]
-        initiatives = [o.to_dict() for o in self.store.list("initiative", scope, {"ACCEPTED", "ACTIVE", "WAITING", "BLOCKED", "STALLED", "REVIEW"})]
+        initiatives = [o.to_dict() for o in self.store.list("initiative", scope, self.ACTIVE_INITIATIVE_STATES)]
         objectives = [o.to_dict() for o in self.store.list("objective", scope, {"READY", "RUNNING", "WAITING", "BLOCKED", "STALLED", "VERIFYING", "INSUFFICIENT_EVIDENCE"})]
         policies = [o.to_dict() for o in self.store.list("policy", scope)]
         return Orientation(scope, goals, practices, initiatives[: self.policy.attention.max_active_initiatives], objectives, policies)
@@ -66,7 +107,6 @@ class BrainController:
         try:
             result = self.orientation(trigger.scope.value)
         except Exception:
-            # A claimed-but-incomplete receipt is intentionally retained for explicit recovery.
             raise
         self.trigger_ledger.complete(trigger)
         return result

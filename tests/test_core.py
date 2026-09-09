@@ -5,7 +5,7 @@ from pathlib import Path
 from aiverse_brain.authority import AuthorityTier, assert_control_channel, assert_self_evolution_fields
 from aiverse_brain.cadence import Trigger
 from aiverse_brain.controller import BrainController
-from aiverse_brain.errors import AuthorityError, DuplicateTrigger, PermissionDenied, RevisionConflict, TransitionError, ValidationError
+from aiverse_brain.errors import AuthorityError, DuplicateTrigger, PermissionDenied, PolicyViolation, RevisionConflict, TransitionError, ValidationError
 from aiverse_brain.models import BrainObject, EvidenceRef, Scope
 from aiverse_brain.policy import BrainPolicy, ProactivityLevel
 from aiverse_brain.ranking import Eligibility, ScoreComponents, NotificationClass, rank
@@ -23,6 +23,13 @@ def initiative_payload(label="x"):
         "outcome": "verified improvement",
         "score_components": {},
     }
+
+
+def objective_payload(status="unverified", evidence=None):
+    criterion = {"id": "c1", "statement": "verified result", "status": status}
+    if evidence is not None:
+        criterion["evidence_refs"] = evidence
+    return {"outcome": "done", "criteria": [criterion], "progress": "complete_unverified"}
 
 
 class StateMachineTests(unittest.TestCase):
@@ -67,6 +74,19 @@ class PolicyTests(unittest.TestCase):
         with self.assertRaises(PermissionDenied):
             policy.assert_pre_authorized("send_message", in_scope=True, within_budget=True, reversible=True)
 
+    def test_wip_cap_is_enforced(self):
+        with tempfile.TemporaryDirectory() as temp:
+            policy = BrainPolicy()
+            policy.attention.max_active_initiatives = 1
+            controller = BrainController(temp, policy)
+            first = controller.create("initiative", "operator", "DISCOVERED", initiative_payload("a"))
+            first = controller.transition("initiative", "operator", first.id, "PROPOSED", source=AuthorityTier.TEMPORARY_HYPOTHESIS, actor="brain")
+            controller.transition("initiative", "operator", first.id, "ACCEPTED", source=AuthorityTier.EXPLICIT_USER, actor="user")
+            second = controller.create("initiative", "operator", "DISCOVERED", initiative_payload("b"))
+            second = controller.transition("initiative", "operator", second.id, "PROPOSED", source=AuthorityTier.TEMPORARY_HYPOTHESIS, actor="brain")
+            with self.assertRaises(PolicyViolation):
+                controller.transition("initiative", "operator", second.id, "ACCEPTED", source=AuthorityTier.EXPLICIT_USER, actor="user")
+
 
 class RankingTests(unittest.TestCase):
     def _components(self):
@@ -93,6 +113,26 @@ class VerificationTests(unittest.TestCase):
         criterion.mark("passed", [EvidenceRef("test-run-1", "DIRECT_MEASUREMENT")])
         self.assertEqual(criterion.status, "passed")
 
+    def test_objective_cannot_pass_unverified(self):
+        with tempfile.TemporaryDirectory() as temp:
+            controller = BrainController(temp)
+            obj = controller.create("objective", "operator", "QUEUED", objective_payload())
+            obj = controller.transition("objective", "operator", obj.id, "READY", source=AuthorityTier.VALIDATED_STRATEGY, actor="brain")
+            obj = controller.transition("objective", "operator", obj.id, "RUNNING", source=AuthorityTier.VALIDATED_STRATEGY, actor="brain")
+            obj = controller.transition("objective", "operator", obj.id, "VERIFYING", source=AuthorityTier.VALIDATED_STRATEGY, actor="brain")
+            with self.assertRaises(ValidationError):
+                controller.transition("objective", "operator", obj.id, "PASSED", source=AuthorityTier.VALIDATED_STRATEGY, actor="brain")
+
+    def test_objective_can_pass_with_evidence(self):
+        with tempfile.TemporaryDirectory() as temp:
+            controller = BrainController(temp)
+            obj = controller.create("objective", "operator", "QUEUED", objective_payload("passed", ["eval-1"]))
+            obj = controller.transition("objective", "operator", obj.id, "READY", source=AuthorityTier.VALIDATED_STRATEGY, actor="brain")
+            obj = controller.transition("objective", "operator", obj.id, "RUNNING", source=AuthorityTier.VALIDATED_STRATEGY, actor="brain")
+            obj = controller.transition("objective", "operator", obj.id, "VERIFYING", source=AuthorityTier.VALIDATED_STRATEGY, actor="brain")
+            obj = controller.transition("objective", "operator", obj.id, "PASSED", source=AuthorityTier.VERIFIED_EVIDENCE, actor="evaluator")
+            self.assertEqual(obj.status, "PASSED")
+
     def test_high_impact_is_v3(self):
         factors = VerificationFactors(impact=0.9, irreversibility=0.8)
         self.assertEqual(select_level(factors), VerificationLevel.V3_HIGH_IMPACT)
@@ -105,6 +145,19 @@ class StorageTests(unittest.TestCase):
             obj = BrainObject.new("initiative", "operator", "DISCOVERED", {"hypothesis": "too little"})
             with self.assertRaises(ValidationError):
                 store.save(obj, expected_revision=-1)
+
+    def test_invalid_status_is_rejected_on_write(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store = ObjectStore(StorageLayout(Path(temp), "standalone"))
+            obj = BrainObject.new("initiative", "operator", "MAGIC_DONE", initiative_payload())
+            with self.assertRaises(ValidationError):
+                store.save(obj, expected_revision=-1)
+
+    def test_lookup_id_cannot_traverse(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store = ObjectStore(StorageLayout(Path(temp), "standalone"))
+            with self.assertRaises(ValidationError):
+                store.load("initiative", "operator", "../../escape")
 
     def test_optimistic_concurrency(self):
         with tempfile.TemporaryDirectory() as temp:

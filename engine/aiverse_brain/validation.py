@@ -1,4 +1,4 @@
-from typing import Any, Dict, Iterable
+from typing import Any, Dict
 
 from .errors import ValidationError
 
@@ -14,6 +14,20 @@ _REQUIRED = {
     "learning": ("statement", "evidence_strength"),
     "strategy_rule": ("evolution_tier", "applies_when", "instruction"),
     "policy": (),
+}
+
+_STATUSES = {
+    "intent": {"DRAFT", "PROPOSED", "CONFIRMED", "ACTIVE", "PAUSED", "ACHIEVED", "ABANDONED", "SUPERSEDED"},
+    "practice": {"DRAFT", "PROPOSED", "CONFIRMED", "ACTIVE", "PAUSED", "RETIRED"},
+    "gap": {"ACTIVE", "RESOLVED", "INVALIDATED"},
+    "opportunity": {"DETECTED", "DISMISSED", "EXPIRED", "WATCHING", "QUALIFIED", "PROPOSED_INITIATIVE"},
+    "initiative": {"DISCOVERED", "PROPOSED", "REJECTED", "DEFERRED", "ACCEPTED", "ACTIVE", "WAITING", "BLOCKED", "STALLED", "PAUSED", "REVIEW", "COMPLETED", "ABANDONED", "SUPERSEDED"},
+    "objective": {"QUEUED", "READY", "RUNNING", "WAITING", "BLOCKED", "STALLED", "VERIFYING", "PASSED", "FAILED", "INSUFFICIENT_EVIDENCE", "CANCELLED", "SUPERSEDED"},
+    "model_belief": {"ACTIVE", "RETIRED", "CONTRADICTED"},
+    "evaluation": {"RECORDED", "SUPERSEDED"},
+    "learning": {"OBSERVATION", "HYPOTHESIS", "PATTERN", "REFLECTION", "VALIDATED_LEARNING", "STRATEGY_CANDIDATE", "PROMOTED", "REJECTED"},
+    "strategy_rule": {"CANDIDATE", "ACTIVE", "RETIRED", "ROLLED_BACK", "REJECTED"},
+    "policy": {"ACTIVE", "SUPERSEDED"},
 }
 
 _ENUMS = {
@@ -61,5 +75,15 @@ def validate_payload(kind: str, payload: Dict[str, Any]) -> None:
         for criterion in payload["criteria"]:
             if not isinstance(criterion, dict) or not {"id", "statement", "status"}.issubset(criterion):
                 raise ValidationError("objective criteria require id, statement, and status")
+            if criterion["status"] not in {"unverified", "passed", "failed", "insufficient_evidence", "not_applicable"}:
+                raise ValidationError(f"invalid objective criterion status: {criterion['status']}")
             if criterion["status"] == "passed" and not criterion.get("evidence_refs"):
                 raise ValidationError("passed objective criterion requires evidence_refs")
+
+
+def validate_object(kind: str, status: str, payload: Dict[str, Any]) -> None:
+    if kind not in _STATUSES:
+        raise ValidationError(f"unknown object kind: {kind}")
+    if status not in _STATUSES[kind]:
+        raise ValidationError(f"invalid {kind} status: {status}")
+    validate_payload(kind, payload)
