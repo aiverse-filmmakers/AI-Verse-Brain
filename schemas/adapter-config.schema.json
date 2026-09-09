@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aiverse.dev/schemas/brain/adapter-config.schema.json",
+  "title": "AI-Verse Brain JSON Subprocess Adapter Config",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "name", "transport", "command"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "name": {"type": "string", "minLength": 1},
+    "transport": {"const": "json-subprocess"},
+    "command": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "timeout_seconds": {"type": "number", "minimum": 0.1, "maximum": 600},
+    "max_input_bytes": {"type": "integer", "minimum": 1024, "maximum": 16777216},
+    "max_output_bytes": {"type": "integer", "minimum": 1024, "maximum": 16777216},
+    "max_stderr_bytes": {"type": "integer", "minimum": 1024, "maximum": 1048576},
+    "env_names": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"}
+    },
+    "model_id": {"type": "string", "minLength": 1},
+    "cwd": {"type": "string", "minLength": 1}
+  }
+}
