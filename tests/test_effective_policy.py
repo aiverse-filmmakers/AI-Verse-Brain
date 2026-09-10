@@ -8,6 +8,7 @@ from aiverse_brain.cadence import Trigger
 from aiverse_brain.cadence_hooks import render_cadence_hooks
 from aiverse_brain.controller import BrainController
 from aiverse_brain.errors import PermissionDenied, ValidationError
+from aiverse_brain.installation import initialize
 from aiverse_brain.models import BrainObject, Scope
 from aiverse_brain.policy import BrainPolicy, ProactivityLevel
 from aiverse_brain.runtime import BrainRuntime
@@ -164,9 +165,10 @@ class EffectivePolicyTests(unittest.TestCase):
             (root / "operator").mkdir()
             (root / "workspaces" / "a").mkdir(parents=True)
             (root / "AI-VERSE.yaml").write_text(
-                'schema_version: "2.0"\narchitecture: unified-workspace\n',
+                'schema_version: "2.0"\narchitecture: unified-workspace\nextensions:\n  brain:\n    supported: true\n    enabled: true\n',
                 encoding="utf-8",
             )
+            initialize(str(root))
             controller = BrainController(str(root))
             controller.create(
                 "policy",
