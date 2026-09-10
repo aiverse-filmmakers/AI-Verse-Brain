@@ -144,11 +144,43 @@ jobs:
                   raise SystemExit('imported intent was not explicitly confirmed')
           PY
 
+      - name: Brain read-only host cannot reactivate frozen OS strategy
+        shell: bash
+        run: |
+          set -euo pipefail
+          export OS_ROOT="$RUNNER_TEMP/AI-Verse-OS"
+
+          # Operational OS current state remains valid after handover.
+          cat >> "$OS_ROOT/operator/context/CURRENT.md" <<'EOF'
+
+          ## Current state
+
+          - Operational fact survives handover
+          EOF
+
+          python - <<'PY'
+          import os
+          from aiverse_brain.local_host import ReadOnlyContextHost
+
+          result = ReadOnlyContextHost(os.environ['OS_ROOT']).read_context('operator')
+          text = result['current_context']
+          if result.get('direction_owner') != 'brain':
+              raise SystemExit('Brain read-only host lost Brain direction ownership')
+          if result.get('context_resolver') != 'ai-verse-os:scripts/current-context.mjs':
+              raise SystemExit('Brain did not use the OS current-context resolver')
+          if 'Ship the current milestone safely' in text:
+              raise SystemExit('frozen OS priority re-entered active Brain context')
+          if 'Operational fact survives handover' not in text:
+              raise SystemExit('valid operational current state was lost')
+          if not result.get('direction_refs'):
+              raise SystemExit('Brain canonical direction refs were not surfaced')
+          PY
+
       - name: Brain loss does not reactivate OS strategy
         shell: bash
         run: |
           set -euo pipefail
-          OS_ROOT="$RUNNER_TEMP/AI-Verse-OS"
+          export OS_ROOT="$RUNNER_TEMP/AI-Verse-OS"
           rm -rf "$OS_ROOT/operator/brain" "$OS_ROOT/runtime/ai-verse-brain"
 
           # The durable ownership marker is independent of Brain process/state availability.
@@ -158,6 +190,21 @@ jobs:
           set -e
           test "$status" -eq 3
           grep -q 'owned by Brain' "$RUNNER_TEMP/after-loss.err"
+
+          # Read authority also remains Brain-owned; no raw-file fallback after runtime loss.
+          python - <<'PY'
+          import os
+          from aiverse_brain.local_host import ReadOnlyContextHost
+
+          result = ReadOnlyContextHost(os.environ['OS_ROOT']).read_context('operator')
+          text = result['current_context']
+          if result.get('direction_owner') != 'brain':
+              raise SystemExit('Brain loss changed direction ownership during read')
+          if 'Ship the current milestone safely' in text:
+              raise SystemExit('Brain loss reactivated frozen OS strategy')
+          if 'Operational fact survives handover' not in text:
+              raise SystemExit('Brain loss hid valid operational state')
+          PY
 
       - name: Handover does not dirty tracked OS files
         shell: bash

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
+import shutil
+import subprocess
 from typing import Any, Dict, Iterable, Optional
 
 from .errors import PermissionDenied, ValidationError
@@ -13,6 +16,10 @@ class ReadOnlyContextHost:
 
     It reads current context only. It cannot execute actions, schedule work,
     notify users, write back, or claim historical-memory ownership.
+
+    On a compatible AI-Verse OS v2 host, current context is always resolved
+    through the OS ownership-aware current-context contract. Brain never falls
+    back to a raw OS CURRENT.md read when that contract is missing or broken.
     """
 
     def __init__(self, root: str, *, context_file: Optional[str] = None, max_bytes: int = 262144):
@@ -24,16 +31,15 @@ class ReadOnlyContextHost:
         if self.context_file is not None and not self.context_file.is_file():
             raise ValidationError(f"context file does not exist: {self.context_file}")
 
+        report = inspect_host(str(self.root))
+        if report.mode == HostMode.AI_VERSE_OS_V2 and self.context_file is not None:
+            raise ValidationError(
+                "--context-file cannot override a compatible AI-Verse OS current-context resolver"
+            )
+
     def _canonical_context_path(self, scope: Scope) -> Optional[Path]:
         if self.context_file is not None:
             return self.context_file
-        report = inspect_host(str(self.root))
-        if report.mode == HostMode.AI_VERSE_OS_V2:
-            if scope.is_operator:
-                candidate = self.root / "operator" / "context" / "CURRENT.md"
-            else:
-                candidate = self.root / "workspaces" / str(scope.workspace_id) / "context" / "CURRENT.md"
-            return candidate if candidate.is_file() else None
         candidate = self.root / "CURRENT.md"
         return candidate if candidate.is_file() else None
 
@@ -45,8 +51,86 @@ class ReadOnlyContextHost:
             )
         return path.read_text(encoding="utf-8")
 
+    def _read_ai_verse_os_context(self, scope: Scope) -> Dict[str, Any]:
+        resolver = self.root / "scripts" / "current-context.mjs"
+        if not resolver.is_file() or resolver.is_symlink():
+            raise ValidationError(
+                "compatible AI-Verse OS requires scripts/current-context.mjs; "
+                "Brain will not fall back to raw CURRENT.md"
+            )
+
+        node = shutil.which("node")
+        if not node:
+            raise ValidationError(
+                "compatible AI-Verse OS current-context resolver requires Node.js; "
+                "Brain will not fall back to raw CURRENT.md"
+            )
+
+        try:
+            completed = subprocess.run(
+                [
+                    node,
+                    str(resolver),
+                    "read",
+                    "--root",
+                    str(self.root),
+                    "--scope",
+                    scope.value,
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise ValidationError(f"AI-Verse OS current-context resolver failed: {exc}") from exc
+
+        if completed.returncode != 0:
+            detail = (completed.stderr or completed.stdout or "resolver returned non-zero").strip()
+            if len(detail) > 512:
+                detail = detail[:512] + "..."
+            raise ValidationError(f"AI-Verse OS current-context resolver failed: {detail}")
+
+        try:
+            payload = json.loads(completed.stdout)
+        except (TypeError, json.JSONDecodeError) as exc:
+            raise ValidationError("AI-Verse OS current-context resolver returned invalid JSON") from exc
+
+        if not isinstance(payload, dict):
+            raise ValidationError("AI-Verse OS current-context resolver returned a non-object payload")
+        if payload.get("scope") != scope.value:
+            raise ValidationError("AI-Verse OS current-context resolver returned the wrong scope")
+        if payload.get("direction_owner") not in {"os", "brain"}:
+            raise ValidationError("AI-Verse OS current-context resolver returned invalid direction ownership")
+        current_context = payload.get("current_context")
+        if not isinstance(current_context, str):
+            raise ValidationError("AI-Verse OS current-context resolver returned invalid current_context")
+        context_bytes = len(current_context.encode("utf-8"))
+        if context_bytes > self.max_bytes:
+            raise ValidationError(
+                "resolved current context exceeds read-only host byte budget "
+                f"({context_bytes} > {self.max_bytes})"
+            )
+
+        source = payload.get("source")
+        if source is not None and not isinstance(source, str):
+            raise ValidationError("AI-Verse OS current-context resolver returned invalid source")
+
+        return {
+            **payload,
+            "scope": scope.value,
+            "current_context": current_context,
+            "source": source,
+            "read_only": True,
+            "context_resolver": "ai-verse-os:scripts/current-context.mjs",
+        }
+
     def read_context(self, scope: str) -> Dict[str, Any]:
         scoped = Scope(scope)
+        report = inspect_host(str(self.root))
+        if report.mode == HostMode.AI_VERSE_OS_V2:
+            return self._read_ai_verse_os_context(scoped)
+
         path = self._canonical_context_path(scoped)
         if path is None:
             return {
