@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import hashlib
@@ -8,17 +9,21 @@ import os
 from pathlib import Path
 import re
 import tempfile
+import time
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
 from .authority import AuthorityTier
-from .errors import ValidationError
+from .errors import LockConflict, ValidationError
 from .models import BrainObject, Scope
 from .runtime_lock import RuntimeKeyLock
 
 _SCHEMA_VERSION = 1
 _OWNER_OS = "os"
 _OWNER_BRAIN = "brain"
+_REGISTRY_LOCK_KEY = "ownership-registry"
+_REGISTRY_LOCK_WAIT_SECONDS = 10.0
+_REGISTRY_LOCK_POLL_SECONDS = 0.02
 _STRATEGIC_ANSWER_KEYS = {
     "desired_state", "success_definition", "goals", "boundaries", "constraints",
 }
@@ -244,6 +249,28 @@ class DirectionOwnershipService:
         self.controller = controller
         self.root = controller.layout.root
         self.lock = RuntimeKeyLock(controller.layout.runtime_dir, namespace="direction-owner")
+        self.registry_lock = RuntimeKeyLock(controller.layout.runtime_dir, namespace="direction-owner-registry")
+
+    @contextmanager
+    def _registry_guard(self):
+        deadline = time.monotonic() + _REGISTRY_LOCK_WAIT_SECONDS
+        while True:
+            manager = self.registry_lock.acquire(_REGISTRY_LOCK_KEY)
+            try:
+                manager.__enter__()
+            except LockConflict:
+                if time.monotonic() >= deadline:
+                    raise
+                time.sleep(_REGISTRY_LOCK_POLL_SECONDS)
+                continue
+            break
+        try:
+            yield
+        except BaseException as exc:
+            manager.__exit__(type(exc), exc, exc.__traceback__)
+            raise
+        else:
+            manager.__exit__(None, None, None)
 
     def owner(self, scope: str) -> str:
         return direction_owner_for(self.controller, scope)
@@ -355,31 +382,58 @@ class DirectionOwnershipService:
             if os.path.exists(temp_name):
                 os.unlink(temp_name)
 
-    def _resume_pending(self, scope: str, registry: Dict[str, Any], record: Dict[str, Any]) -> DirectionHandoverResult:
-        refs = list(record.get("brain_refs", []))
-        confirmed: List[str] = []
-        for ref in refs:
-            prefix = "brain:intent:"
-            if not isinstance(ref, str) or not ref.startswith(prefix):
-                raise ValidationError("pending direction handover contains an invalid Brain intent ref")
-            object_id = ref[len(prefix):]
-            obj = self.controller.store.load("intent", scope, object_id)
-            if obj.status == "PROPOSED":
-                obj = self.controller.transition(
-                    "intent", scope, object_id, "CONFIRMED",
-                    source=AuthorityTier.EXPLICIT_USER,
-                    actor="user:direction-handover",
+    def _resume_pending(self, scope: str) -> DirectionHandoverResult:
+        # Recovery rewrites the same shared ownership registry as a fresh handover.
+        # Acquire the registry-wide lock and reread the latest document so one scope
+        # can never replace records written by another scope while it was interrupted.
+        with self._registry_guard():
+            registry = read_registry(self.root)
+            record = registry["scopes"].get(scope)
+            if not isinstance(record, dict) or record.get("owner") != _OWNER_BRAIN:
+                raise ValidationError(f"no Brain-owned direction handover is available to resume for {scope}")
+            if record.get("state") != "activating":
+                return DirectionHandoverResult(
+                    scope,
+                    _OWNER_BRAIN,
+                    record.get("handover_id"),
+                    str(record.get("state", "active")),
+                    list(record.get("brain_refs", [])),
+                    list(record.get("legacy_sources", [])),
                 )
-            if obj.status not in {"CONFIRMED", "ACTIVE"}:
-                raise ValidationError(f"handover intent is not confirmable: {ref} ({obj.status})")
-            confirmed.append(ref)
-        record["brain_refs"] = confirmed
-        record["state"] = "active"
-        record["completed_at"] = _utc_now()
-        registry["scopes"][scope] = record
-        _atomic_json_write(self.root, ownership_path(self.root), registry)
-        self._render_view(scope, record)
-        return self.status(scope)
+
+            refs = list(record.get("brain_refs", []))
+            confirmed: List[str] = []
+            for ref in refs:
+                prefix = "brain:intent:"
+                if not isinstance(ref, str) or not ref.startswith(prefix):
+                    raise ValidationError("pending direction handover contains an invalid Brain intent ref")
+                object_id = ref[len(prefix):]
+                obj = self.controller.store.load("intent", scope, object_id)
+                if obj.status == "PROPOSED":
+                    obj = self.controller.transition(
+                        "intent", scope, object_id, "CONFIRMED",
+                        source=AuthorityTier.EXPLICIT_USER,
+                        actor="user:direction-handover",
+                    )
+                if obj.status not in {"CONFIRMED", "ACTIVE"}:
+                    raise ValidationError(f"handover intent is not confirmable: {ref} ({obj.status})")
+                confirmed.append(ref)
+
+            record = dict(record)
+            record["brain_refs"] = confirmed
+            record["state"] = "active"
+            record["completed_at"] = _utc_now()
+            registry["scopes"][scope] = record
+            _atomic_json_write(self.root, ownership_path(self.root), registry)
+            self._render_view(scope, record)
+            return DirectionHandoverResult(
+                scope,
+                _OWNER_BRAIN,
+                record.get("handover_id"),
+                "active",
+                list(record.get("brain_refs", [])),
+                list(record.get("legacy_sources", [])),
+            )
 
     def handover(self, scope: str, *, confirm_import: bool) -> DirectionHandoverResult:
         Scope(scope)
@@ -389,11 +443,10 @@ class DirectionOwnershipService:
             raise ValidationError("direction handover is only needed for an AI-Verse OS native installation")
 
         with self.lock.acquire(scope):
-            registry = read_registry(self.root)
-            existing = registry["scopes"].get(scope)
+            existing = read_registry(self.root)["scopes"].get(scope)
             if existing and existing.get("owner") == _OWNER_BRAIN:
                 if existing.get("state") == "activating":
-                    return self._resume_pending(scope, registry, existing)
+                    return self._resume_pending(scope)
                 return self.status(scope)
 
             candidates = self._candidates(scope)
@@ -408,9 +461,6 @@ class DirectionOwnershipService:
                     seen_sources.add(key)
                     sources.append({"path": item.source_path, "sha256": item.source_sha256})
 
-            # Flip ownership only after all imported intent objects exist in a non-active PROPOSED state.
-            # If the process stops after this write, OS remains locked out of strategic writes and rerunning
-            # handover resumes confirmation from the recorded refs.
             record: Dict[str, Any] = {
                 "owner": _OWNER_BRAIN,
                 "state": "activating",
@@ -422,6 +472,28 @@ class DirectionOwnershipService:
                 "legacy_sources": sources,
                 "view_path": f".aiverse/direction/views/{_safe_scope_filename(scope)}.md",
             }
-            registry["scopes"][scope] = record
-            _atomic_json_write(self.root, ownership_path(self.root), registry)
-            return self._resume_pending(scope, registry, record)
+
+            # The shared ownership registry is one resource across every scope.
+            # Reread it while holding one registry-wide lock immediately before the
+            # read-modify-write so concurrent Alpha/Beta handovers preserve both.
+            with self._registry_guard():
+                registry = read_registry(self.root)
+                latest = registry["scopes"].get(scope)
+                if latest and latest.get("owner") == _OWNER_BRAIN:
+                    if latest.get("state") != "activating":
+                        return DirectionHandoverResult(
+                            scope,
+                            _OWNER_BRAIN,
+                            latest.get("handover_id"),
+                            str(latest.get("state", "active")),
+                            list(latest.get("brain_refs", [])),
+                            list(latest.get("legacy_sources", [])),
+                        )
+                else:
+                    registry["scopes"][scope] = record
+                    _atomic_json_write(self.root, ownership_path(self.root), registry)
+
+            # Confirmation/recovery performs its own registry-wide locked reread.
+            # If a process stops after the activating write, rerunning handover
+            # resumes only this scope without replacing newer records from others.
+            return self._resume_pending(scope)
