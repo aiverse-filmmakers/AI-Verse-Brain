@@ -112,12 +112,13 @@ class ReleaseHostCadenceMigrationTests(unittest.TestCase):
                 host.request_action({})
 
     def test_cadence_hooks_do_not_claim_scheduler_ownership(self):
-        hooks = render_cadence_hooks("/tmp/brain", vendor="claude", proactivity=2)
+        hooks = render_cadence_hooks("/tmp/brain", vendor="claude", proactivity=2, read_only_context=True)
         self.assertGreaterEqual(len(hooks), 4)
         for hook in hooks:
             self.assertFalse(hook["scheduler_owned_by_brain"])
             self.assertIn("run-tick", hook["argv"])
             self.assertIn("--vendor", hook["argv"])
+            self.assertIn("--read-only-context", hook["argv"])
 
     def test_package_metadata_migration_is_explicit_and_safe(self):
         with tempfile.TemporaryDirectory() as temp:
