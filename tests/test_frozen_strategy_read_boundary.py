@@ -57,7 +57,10 @@ class FrozenStrategyReadBoundaryTests(unittest.TestCase):
             self.assertNotIn("FROZEN OS STRATEGY", result["current_context"])
             self.assertIn("operational fact", result["current_context"])
             argv = run.call_args.args[0]
-            self.assertIn(str(root / "scripts" / "current-context.mjs"), argv)
+            self.assertEqual(
+                Path(argv[1]).resolve(),
+                (root / "scripts" / "current-context.mjs").resolve(),
+            )
             self.assertEqual(argv[-2:], ["--scope", "operator"])
 
     def test_missing_os_resolver_fails_closed_instead_of_raw_read(self):
