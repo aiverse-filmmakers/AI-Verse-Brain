@@ -99,6 +99,7 @@ A host bridge may advertise any subset of:
 - `retrieve_history`
 - `list_capabilities`
 - `list_connections`
+- `authorize_action`
 - `request_action`
 - `request_evaluation`
 - `schedule_trigger`
@@ -108,7 +109,57 @@ A host bridge may advertise any subset of:
 
 An advertised operation means only that the adapter can perform it. It does **not** mean Brain policy authorizes it.
 
-For example, `request_action` is reached only through the explicit `ActionExecutor` path after Brain's action-class policy, scope, budget, approval and replay-safety gates have passed.
+An execution-capable host must provide `authorize_action` for any action Brain may dispatch. Brain intersects that restrictive host decision with its own effective policy before `request_action` can be reached. The host permission decision is not a user approval grant.
+
+### `authorize_action`
+
+Brain sends the exact immutable action request plus its canonical request fingerprint:
+
+```json
+{
+  "request": {
+    "request_id": "...",
+    "action_class": "send_message",
+    "scope": "workspace:example",
+    "operation": "send",
+    "parameters": {},
+    "idempotency_key": "...",
+    "in_scope": true,
+    "within_budget": true,
+    "reversible": false,
+    "reason": "...",
+    "created_at": "...",
+    "request_fingerprint": "<sha256>"
+  }
+}
+```
+
+The host returns exactly:
+
+```json
+{
+  "decision": "approval_required",
+  "request_fingerprint": "<same sha256>",
+  "scope": "workspace:example",
+  "action_class": "send_message",
+  "source": "os:workspace-policy",
+  "reason": "external actions require confirmation"
+}
+```
+
+`decision` must be `allow`, `approval_required`, or `deny`. The fingerprint, scope, and action class must match the request exactly. Missing, malformed, mismatched, or failed permission checks fail closed.
+
+The host may only restrict Brain:
+
+- host `deny` always blocks;
+- host `approval_required` adds an exact explicit-user approval requirement;
+- host `allow` never overrides a Brain denial or Brain approval requirement.
+
+Brain checks host permission before creating a claimed dispatch record and checks it again at the `request_action` edge so a policy revocation between authorization and dispatch prevents the external effect.
+
+### `request_action`
+
+`request_action` is reached only after Brain's action-class policy, scope, budget, approval, replay-safety gates, and the current host permission decision have passed. Receipt/effect verification remains a separate contract.
 
 ### `retrieve_history`
 
@@ -154,7 +205,7 @@ Example:
   "schema_version": "1.0",
   "name": "my-agent-bridge",
   "transport": "json-subprocess",
-  "command": ["python", "/absolute/path/to/bridge_wrapper.py"],
+  "command": ["python", "/absolute/path/to/my_bridge.py"],
   "timeout_seconds": 60,
   "env_names": ["MY_PROVIDER_API_KEY"],
   "model_id": "my-model"
@@ -185,6 +236,7 @@ The bridge fails closed on:
 - malformed handshake;
 - undeclared host operation;
 - unexpected result type;
+- missing, malformed, or mismatched host action permission decisions;
 - an over-budget capability candidate stream presented to Brain context assembly.
 
 Adapter failure becomes an execution error, not permission to switch to a different authority path.
