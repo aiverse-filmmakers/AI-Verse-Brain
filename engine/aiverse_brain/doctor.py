@@ -139,10 +139,16 @@ def run_doctor(root: str) -> DoctorReport:
     else:
         report.add("parallel-store", "PASS", "no standalone Brain store in native mode")
 
-    if host.brain_extension_slot:
-        report.add("brain-extension-slot", "PASS", "AI-VERSE.yaml exposes extensions.brain")
+    if not host.brain_extension_slot:
+        report.add("brain-extension-slot", "WARN", "extensions.brain is absent; native Brain writes are unavailable")
+    elif host.brain_registration_valid:
+        report.add("brain-extension-slot", "PASS", "extensions.brain is explicitly supported and enabled")
     else:
-        report.add("brain-extension-slot", "WARN", "extensions.brain is absent; do not patch the OS manifest implicitly")
+        report.add(
+            "brain-extension-slot",
+            "FAIL",
+            f"extensions.brain registration is not write-ready (supported={host.brain_supported!r}, enabled={host.brain_enabled!r})",
+        )
 
     report.add("memory", "INFO", "AI-Verse Memory detected" if host.memory_detected else "AI-Verse Memory not detected; it remains optional")
     operator_state = base / "operator" / "brain"
