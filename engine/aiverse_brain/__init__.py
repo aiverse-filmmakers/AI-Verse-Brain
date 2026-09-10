@@ -14,6 +14,14 @@ from .bridge import (
 from .cadence_hooks import render_cadence_hooks
 from .cognition import CognitionProposal, CognitionPurpose, CognitionRequest, validate_proposal
 from .controller import BrainController
+from .direction_ownership import (
+    DirectionHandoverPlan,
+    DirectionHandoverResult,
+    DirectionImportCandidate,
+    DirectionOwnershipService,
+    direction_owner_for,
+    read_registry as read_direction_ownership_registry,
+)
 from .doctor import run_doctor
 from .installation import InitPlan, InitResult, initialize, plan_init, read_installation_marker
 from .integration import HostMode, inspect_host, native_path_contract, plan_integration
@@ -36,6 +44,8 @@ __all__ = [
     "JSONSubprocessBridge", "adapter_doctor",
     "BrainController", "BrainObject", "EvidenceRef", "Scope",
     "CognitionProposal", "CognitionPurpose", "CognitionRequest", "validate_proposal",
+    "DirectionImportCandidate", "DirectionHandoverPlan", "DirectionHandoverResult",
+    "DirectionOwnershipService", "direction_owner_for", "read_direction_ownership_registry",
     "InitPlan", "InitResult", "initialize", "plan_init", "read_installation_marker",
     "HostMode", "inspect_host", "native_path_contract", "plan_integration", "run_doctor",
     "OnboardingPlan", "OnboardingResult", "OnboardingService",

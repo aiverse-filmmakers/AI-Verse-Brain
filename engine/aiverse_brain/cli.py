@@ -11,6 +11,7 @@ from .cadence import Trigger
 from .cadence_hooks import effective_cadence_policy, render_cadence_hooks
 from .cadence_plan import plan_cadence
 from .controller import BrainController
+from .direction_ownership import DirectionOwnershipService
 from .doctor import run_doctor
 from .errors import BrainError
 from .installation import initialize, plan_init, read_installation_marker
@@ -36,6 +37,13 @@ def build_parser() -> argparse.ArgumentParser:
     onboard.add_argument("--scope", default="operator")
     onboard.add_argument("--answers", help="path to a JSON answers file")
     onboard.add_argument("--apply", action="store_true", help="apply explicit answers as confirmed Brain intent/practices")
+
+    direction = sub.add_parser("direction-owner", help="inspect or explicitly hand OS strategic direction to Brain")
+    direction.add_argument("root", nargs="?", default=".")
+    direction.add_argument("--scope", default="operator")
+    direction.add_argument("--handover-to-brain", action="store_true", help="plan a one-way explicit handover from OS to Brain")
+    direction.add_argument("--apply", action="store_true", help="apply the handover; requires --handover-to-brain and --confirm-import")
+    direction.add_argument("--confirm-import", action="store_true", help="explicitly confirm importing discovered OS goals/objectives with provenance")
 
     adapter = sub.add_parser("adapter-doctor", help="validate and handshake with a JSON subprocess adapter")
     adapter.add_argument("config", help="path to adapter JSON config; credential values must remain outside this file")
@@ -167,6 +175,23 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 })
                 return 0
             _print(service.apply(answers, args.scope).to_dict())
+            return 0
+
+        if args.command == "direction-owner":
+            root = str(Path(args.root))
+            if read_installation_marker(root) is None:
+                _print({"ok": False, "error": "Brain is not initialized; run `ai-verse-brain init --apply` first"})
+                return 4
+            service = DirectionOwnershipService(BrainController(root))
+            if not args.handover_to_brain:
+                if args.apply or args.confirm_import:
+                    raise ValueError("--apply/--confirm-import require --handover-to-brain")
+                _print(service.status(args.scope).to_dict())
+                return 0
+            if not args.apply:
+                _print(service.plan(args.scope).to_dict())
+                return 0
+            _print(service.handover(args.scope, confirm_import=args.confirm_import).to_dict())
             return 0
 
         if args.command == "adapter-doctor":

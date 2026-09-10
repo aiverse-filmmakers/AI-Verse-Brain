@@ -57,6 +57,28 @@ class BrainController:
         self.policy = load_effective_policy(self.store, scope, caller_override=self._caller_policy)
         return self.policy
 
+    def direction_owner(self, scope: str) -> str:
+        from .direction_ownership import direction_owner_for
+        return direction_owner_for(self, scope)
+
+    def _assert_intent_write_owner(self, scope: str, status: str, actor: str) -> None:
+        """Brain may write strategic intent only when it is the durable owner for this scope.
+
+        The sole exception is the non-active PROPOSED staging used by explicit handover. The
+        ownership marker is flipped before any staged intent can transition to CONFIRMED.
+        """
+        if self.layout.mode != "native":
+            return
+        owner = self.direction_owner(scope)
+        if owner == "brain":
+            return
+        if owner == "os" and status == "PROPOSED" and actor == "user:direction-handover":
+            return
+        raise ValidationError(
+            f"strategic direction for {scope} is owned by AI-Verse OS; "
+            "explicitly hand it over before writing Brain intent"
+        )
+
     def _validate_policy_change(self, scope: str, payload: Dict[str, Any]) -> BrainPolicy:
         candidate = validate_policy_payload_for_scope(self.store, scope, payload)
         if self._caller_policy is not None:
@@ -77,6 +99,8 @@ class BrainController:
         supersedes: Optional[str] = None,
     ) -> BrainObject:
         assert_creation(kind, status, source)
+        if kind == "intent":
+            self._assert_intent_write_owner(scope, status, actor)
         if kind == "policy":
             self._validate_policy_change(scope, payload)
             if self.store.list("policy", scope, {"ACTIVE"}):
@@ -133,6 +157,8 @@ class BrainController:
         else:
             policy = self.policy
         obj = self.store.load(kind, scope, object_id)
+        if kind == "intent":
+            self._assert_intent_write_owner(scope, target, actor)
         assert_transition(kind, obj.status, target, source)
         if kind == "initiative" and target in {"ACCEPTED", "ACTIVE"} and obj.status not in self.ACTIVE_INITIATIVE_STATES:
             self._assert_initiative_capacity(scope, exclude_id=obj.id)
@@ -170,7 +196,14 @@ class BrainController:
     def orientation(self, scope: str) -> Orientation:
         Scope(scope)
         policy = self.refresh_policy(scope)
-        goals = [o.to_dict() for o in self.store.list("intent", scope, {"CONFIRMED", "ACTIVE"}) if o.payload.get("subtype") in {"goal", "desired_state"}]
+        if self.direction_owner(scope) == "brain":
+            goals = [
+                o.to_dict() for o in self.store.list("intent", scope, {"CONFIRMED", "ACTIVE"})
+                if o.payload.get("subtype") in {"goal", "desired_state"}
+            ]
+        else:
+            # OS-owned direction is read through the host context, never duplicated into Brain orientation.
+            goals = []
         practices = [o.to_dict() for o in self.store.list("practice", scope, {"ACTIVE"})]
         initiatives = [o.to_dict() for o in self.store.list("initiative", scope, self.ACTIVE_INITIATIVE_STATES)]
         objectives = [o.to_dict() for o in self.store.list("objective", scope, self.ACTIVE_OBJECTIVE_STATES)]

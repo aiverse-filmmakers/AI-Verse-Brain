@@ -7,6 +7,7 @@ from aiverse_brain.authority import AuthorityTier
 from aiverse_brain.cadence import Trigger
 from aiverse_brain.cli import main as cli_main
 from aiverse_brain.controller import BrainController
+from aiverse_brain.direction_ownership import DirectionOwnershipService
 from aiverse_brain.errors import ValidationError
 from aiverse_brain.installation import initialize, plan_init
 from aiverse_brain.integration import plan_integration
@@ -48,6 +49,11 @@ def confirmed_goal(controller: BrainController, statement="ship safely"):
         source=AuthorityTier.EXPLICIT_USER,
         actor="user:test",
     )
+
+
+def handover_operator_direction(root: Path):
+    controller = BrainController(str(root))
+    return DirectionOwnershipService(controller).handover("operator", confirm_import=True)
 
 
 class NativeWriteReadinessAcceptanceTests(unittest.TestCase):
@@ -126,6 +132,8 @@ class NativeWriteReadinessAcceptanceTests(unittest.TestCase):
             result = initialize(str(root))
             self.assertTrue(result.created)
             self.assertTrue((root / "operator" / "brain" / "installation.json").is_file())
+            # Installation alone does not transfer strategy ownership; explicitly hand it over first.
+            handover_operator_direction(root)
             saved = confirmed_goal(BrainController(str(root)))
             self.assertEqual(saved.status, "CONFIRMED")
             self.assertTrue((root / "operator" / "brain" / "intent" / f"{saved.id}.json").is_file())
@@ -137,6 +145,7 @@ class NativeWriteReadinessAcceptanceTests(unittest.TestCase):
             root.mkdir()
             make_native(root, supported=True, enabled=True)
             initialize(str(root))
+            handover_operator_direction(root)
             first = confirmed_goal(BrainController(str(root)), "first goal")
             manifest = root / "AI-VERSE.yaml"
             manifest.write_text(
