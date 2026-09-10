@@ -1,8 +1,13 @@
 import json
 import tempfile
+import threading
+import time
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest.mock import patch
+
+import aiverse_brain.direction_ownership as direction_ownership
 
 from aiverse_brain.authority import AuthorityTier
 from aiverse_brain.controller import BrainController
@@ -175,6 +180,160 @@ class DirectionOwnershipAcceptanceTests(unittest.TestCase):
             self.assertEqual(len(intents), 1)
             self.assertEqual(intents[0].payload["subtype"], "desired_state")
             self.assertEqual(intents[0].payload["statement"], "Finish the pilot with verified continuity.")
+
+    def test_concurrent_workspace_handovers_preserve_both_registry_records(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "host"
+            root.mkdir()
+            make_native(root)
+            for workspace_id in ("alpha", "beta"):
+                current = root / "workspaces" / workspace_id / "context" / "CURRENT.md"
+                current.parent.mkdir(parents=True)
+                current.write_text(
+                    "# Current Workspace Context\n\n## Current state\n\nOperational only.\n",
+                    encoding="utf-8",
+                )
+
+            original_write = direction_ownership._atomic_json_write
+            first_write_started = threading.Event()
+            release_first_write = threading.Event()
+            write_counter_lock = threading.Lock()
+            write_counter = {"count": 0}
+
+            def hold_first_registry_write(*args, **kwargs):
+                with write_counter_lock:
+                    write_counter["count"] += 1
+                    call_number = write_counter["count"]
+                if call_number == 1:
+                    first_write_started.set()
+                    if not release_first_write.wait(timeout=5):
+                        raise RuntimeError("timed out waiting to release first ownership registry write")
+                return original_write(*args, **kwargs)
+
+            start = threading.Barrier(2)
+
+            def handover(workspace_id):
+                controller = BrainController(str(root))
+                service = DirectionOwnershipService(controller)
+                start.wait(timeout=5)
+                return service.handover(f"workspace:{workspace_id}", confirm_import=True)
+
+            with patch.object(direction_ownership, "_atomic_json_write", side_effect=hold_first_registry_write):
+                with ThreadPoolExecutor(max_workers=2) as pool:
+                    alpha = pool.submit(handover, "alpha")
+                    beta = pool.submit(handover, "beta")
+                    self.assertTrue(first_write_started.wait(timeout=5))
+                    time.sleep(0.1)
+                    release_first_write.set()
+                    alpha_result = alpha.result(timeout=10)
+                    beta_result = beta.result(timeout=10)
+
+            self.assertEqual(alpha_result.owner, "brain")
+            self.assertEqual(beta_result.owner, "brain")
+            restarted = BrainController(str(root))
+            registry = read_registry(root)
+            self.assertEqual(registry["scopes"]["workspace:alpha"]["owner"], "brain")
+            self.assertEqual(registry["scopes"]["workspace:alpha"]["state"], "active")
+            self.assertEqual(registry["scopes"]["workspace:beta"]["owner"], "brain")
+            self.assertEqual(registry["scopes"]["workspace:beta"]["state"], "active")
+            self.assertEqual(restarted.direction_owner("workspace:alpha"), "brain")
+            self.assertEqual(restarted.direction_owner("workspace:beta"), "brain")
+
+    def test_interrupted_resume_cannot_erase_concurrent_other_scope_handover(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "host"
+            root.mkdir()
+            make_native(root)
+
+            alpha_current = root / "workspaces" / "alpha" / "context" / "CURRENT.md"
+            alpha_current.parent.mkdir(parents=True)
+            alpha_current.write_text(
+                "# Current Workspace Context\n\n"
+                "## Objective\n\nPreserve Alpha direction through recovery.\n\n"
+                "## Current state\n\nOperational.\n",
+                encoding="utf-8",
+            )
+            beta_current = root / "workspaces" / "beta" / "context" / "CURRENT.md"
+            beta_current.parent.mkdir(parents=True)
+            beta_current.write_text(
+                "# Current Workspace Context\n\n## Current state\n\nOperational.\n",
+                encoding="utf-8",
+            )
+
+            interrupted_controller = BrainController(str(root))
+            interrupted_service = DirectionOwnershipService(interrupted_controller)
+            original_transition = interrupted_controller.transition
+            transition_calls = {"count": 0}
+
+            def fail_first_confirmation(*args, **kwargs):
+                transition_calls["count"] += 1
+                if transition_calls["count"] == 1:
+                    raise RuntimeError("simulated interruption after Alpha ownership flip")
+                return original_transition(*args, **kwargs)
+
+            with patch.object(interrupted_controller, "transition", side_effect=fail_first_confirmation):
+                with self.assertRaises(RuntimeError):
+                    interrupted_service.handover("workspace:alpha", confirm_import=True)
+
+            interrupted_registry = read_registry(root)
+            self.assertEqual(interrupted_registry["scopes"]["workspace:alpha"]["owner"], "brain")
+            self.assertEqual(interrupted_registry["scopes"]["workspace:alpha"]["state"], "activating")
+
+            original_write = direction_ownership._atomic_json_write
+            first_write_started = threading.Event()
+            release_first_write = threading.Event()
+            write_counter_lock = threading.Lock()
+            write_counter = {"count": 0}
+
+            def hold_first_recovery_write(*args, **kwargs):
+                with write_counter_lock:
+                    write_counter["count"] += 1
+                    call_number = write_counter["count"]
+                if call_number == 1:
+                    first_write_started.set()
+                    if not release_first_write.wait(timeout=5):
+                        raise RuntimeError("timed out waiting to release recovery registry write")
+                return original_write(*args, **kwargs)
+
+            start = threading.Barrier(2)
+
+            def resume_alpha():
+                controller = BrainController(str(root))
+                service = DirectionOwnershipService(controller)
+                start.wait(timeout=5)
+                return service.handover("workspace:alpha", confirm_import=True)
+
+            def handover_beta():
+                controller = BrainController(str(root))
+                service = DirectionOwnershipService(controller)
+                start.wait(timeout=5)
+                return service.handover("workspace:beta", confirm_import=True)
+
+            with patch.object(direction_ownership, "_atomic_json_write", side_effect=hold_first_recovery_write):
+                with ThreadPoolExecutor(max_workers=2) as pool:
+                    alpha = pool.submit(resume_alpha)
+                    beta = pool.submit(handover_beta)
+                    self.assertTrue(first_write_started.wait(timeout=5))
+                    time.sleep(0.1)
+                    release_first_write.set()
+                    alpha_result = alpha.result(timeout=10)
+                    beta_result = beta.result(timeout=10)
+
+            self.assertEqual(alpha_result.state, "active")
+            self.assertEqual(beta_result.state, "active")
+            restarted = BrainController(str(root))
+            registry = read_registry(root)
+            for scope in ("workspace:alpha", "workspace:beta"):
+                self.assertEqual(registry["scopes"][scope]["owner"], "brain")
+                self.assertEqual(registry["scopes"][scope]["state"], "active")
+                self.assertEqual(restarted.direction_owner(scope), "brain")
+
+            alpha_intents = restarted.store.list("intent", "workspace:alpha", {"CONFIRMED"})
+            self.assertEqual(len(alpha_intents), 1)
+            self.assertEqual(
+                alpha_intents[0].payload["statement"],
+                "Preserve Alpha direction through recovery.",
+            )
 
     def test_malformed_owner_registry_fails_closed(self):
         with tempfile.TemporaryDirectory() as temp:
