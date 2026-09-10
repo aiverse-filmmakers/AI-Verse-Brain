@@ -13,6 +13,18 @@ class RecordingHost:
     def __init__(self):
         self.calls = 0
         self.requests = []
+        self.permission_calls = 0
+
+    def authorize_action(self, request):
+        self.permission_calls += 1
+        return {
+            "decision": "allow",
+            "request_fingerprint": request["request_fingerprint"],
+            "scope": request["scope"],
+            "action_class": request["action_class"],
+            "source": "test-host",
+            "reason": "fixture permits the action",
+        }
 
     def request_action(self, request):
         self.calls += 1
