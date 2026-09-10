@@ -148,16 +148,33 @@ The bridge launches subprocesses with `shell=False`, bounded input/output, timeo
 A safe public-beta tick uses a read-only context host plus a reasoner-only vendor wrapper:
 
 ```bash
-ai-verse-brain run-tick . --vendor claude --trigger explicit
+ai-verse-brain run-tick . --vendor claude --read-only-context --trigger explicit
 ```
 
 Or supply a current-context file explicitly:
 
 ```bash
-ai-verse-brain run-tick . --vendor codex --context-file ./CURRENT.md --trigger explicit
+ai-verse-brain run-tick . --vendor codex --read-only-context --context-file ./CURRENT.md --trigger explicit
 ```
 
 In native AI-Verse mode the read-only host can discover the canonical `operator/context/CURRENT.md` or scoped workspace `context/CURRENT.md`. It does not copy that content into a competing canonical store merely because the reasoner saw it.
+
+For full AI-Verse OS + Memory + Skills composition, use the supported OS host adapter shipped by AI-Verse OS. Generate a Brain bridge config from the OS checkout, then pass it explicitly:
+
+```bash
+python <AI-Verse-OS>/scripts/ai_verse_host_adapter.py \
+  --root <AI-Verse-OS> \
+  --skills-root <AI-Verse-Skills-runtime-root> \
+  --skills-entrypoint <AI-Verse-Skills>/installer/aiverse_skills.py \
+  --write-config <AI-Verse-OS>/.aiverse/brain-host.json
+
+ai-verse-brain run-tick <AI-Verse-OS> \
+  --vendor claude \
+  --host-adapter <AI-Verse-OS>/.aiverse/brain-host.json \
+  --trigger explicit
+```
+
+The OS adapter remains the host boundary. It delegates current context to OS, history to installed Memory, capability resolution and permission to OS, and immutable generation pinning plus execution-receipt validation to Skills. Brain still owns cognition, policy intersection, approval checks, and objective verification.
 
 The runtime pipeline remains:
 
@@ -186,7 +203,7 @@ ai-verse-brain plan-cadence --scope operator --proactivity 2
 Generate portable argv hooks that a host scheduler can install:
 
 ```bash
-ai-verse-brain cadence-hooks . --vendor claude --scope operator --proactivity 2
+ai-verse-brain cadence-hooks . --vendor claude --read-only-context --scope operator --proactivity 2
 ```
 
 This can represent session start/end, scheduled orientation and strategic review while leaving cron/systemd/launchd/Hermes/AI-Verse cadence ownership with the host.
