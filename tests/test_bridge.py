@@ -37,7 +37,7 @@ payload = request.get("payload") or {}
 
 operations = [
     "reason", "read_context", "retrieve_history", "list_capabilities", "list_connections",
-    "request_action", "request_evaluation", "schedule_trigger", "cancel_trigger", "notify_user",
+    "authorize_action", "request_action", "request_evaluation", "schedule_trigger", "cancel_trigger", "notify_user",
     "write_route", "echo_env"
 ]
 
@@ -59,6 +59,16 @@ elif operation == "list_capabilities":
     result = [{"id": "cap:1"}]
 elif operation == "list_connections":
     result = [{"id": "conn:1"}]
+elif operation == "authorize_action":
+    action = payload.get("request") or {}
+    result = {
+        "decision": "allow",
+        "request_fingerprint": action.get("request_fingerprint"),
+        "scope": action.get("scope"),
+        "action_class": action.get("action_class"),
+        "source": "test-bridge",
+        "reason": "synthetic bridge permits action"
+    }
 elif operation == "request_action":
     action = payload.get("request") or {}
     result = {"status": "succeeded", "receipt_id": "bridge-receipt-1", "result": {"operation": action.get("operation")}}
@@ -159,6 +169,13 @@ class BridgeProtocolTests(BridgeTestCase):
             self.assertEqual(host.read_context("operator")["scope"], "operator")
             self.assertEqual(list(host.retrieve_history("x", "operator"))[0]["ref"], "history:1")
             self.assertEqual(list(host.list_capabilities("operator"))[0]["id"], "cap:1")
+            permission = host.authorize_action({
+                "request_fingerprint": "a" * 64,
+                "scope": "operator",
+                "action_class": "read_local",
+            })
+            self.assertEqual(permission["decision"], "allow")
+            self.assertEqual(permission["request_fingerprint"], "a" * 64)
             self.assertEqual(host.write_route("memory", {"x": 1}, "operator"), "host:write:1")
 
     def test_reasoner_uses_same_untrusted_bridge_boundary(self):
@@ -252,6 +269,8 @@ print(json.dumps({"protocol": request["protocol"], "request_id": request["reques
             host = BridgeHostAdapter(self.make_bridge(temp, script=script))
             with self.assertRaises(BridgeProtocolError):
                 host.request_action({"x": 1})
+            with self.assertRaises(BridgeProtocolError):
+                host.authorize_action({"request_fingerprint": "a" * 64, "scope": "operator", "action_class": "read_local"})
 
     def test_adapter_doctor_reports_no_stored_credential_values(self):
         with tempfile.TemporaryDirectory() as temp:
