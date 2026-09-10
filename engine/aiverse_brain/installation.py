@@ -10,7 +10,7 @@ from uuid import uuid4
 
 from ._version import INSTALLATION_SCHEMA_VERSION, STATE_SCHEMA_VERSION, __version__
 from .errors import ValidationError
-from .integration import HostMode, inspect_host
+from .integration import HostMode, inspect_host, native_registration_blockers
 from .models import utc_now
 
 PACKAGE_VERSION = __version__
@@ -164,10 +164,7 @@ def plan_init(root: str) -> InitPlan:
     if report.mode == HostMode.AI_VERSE_OS_V2:
         if (base / ".ai-verse-brain").exists():
             blockers.append("parallel standalone .ai-verse-brain store exists inside native AI-Verse host")
-        if not report.brain_extension_slot:
-            blockers.append(
-                "AI-VERSE.yaml has no extensions.brain slot; installer will not patch OS canonical state implicitly"
-            )
+        blockers.extend(native_registration_blockers(report))
 
     marker = state / "installation.json"
     already_initialized = False
@@ -225,6 +222,10 @@ def initialize(root: str) -> InitResult:
         raise ValidationError("Brain initialization blocked: " + "; ".join(plan.blockers))
     if plan.state_root is None or plan.runtime_root is None:
         raise ValidationError("initialization plan has no safe state/runtime path")
+
+    if plan.mode == HostMode.AI_VERSE_OS_V2:
+        from .write_gate import require_write_ready
+        require_write_ready(root, allow_uninitialized_bootstrap=True)
 
     state = Path(plan.state_root)
     runtime = Path(plan.runtime_root)
