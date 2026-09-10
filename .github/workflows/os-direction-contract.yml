@@ -1,0 +1,169 @@
+name: OS Direction Ownership Contract
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  os-brain-direction-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Brain
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install Brain from this commit
+        run: python -m pip install -e .
+
+      - name: Clone current AI-Verse OS main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth 1 https://github.com/aiverse-filmmakers/AI-Verse-OS.git "$RUNNER_TEMP/AI-Verse-OS"
+
+      - name: Explicitly register Brain in the test host
+        shell: bash
+        run: |
+          set -euo pipefail
+          export OS_ROOT="$RUNNER_TEMP/AI-Verse-OS"
+          python - <<'PY'
+          import os
+          from pathlib import Path
+
+          manifest = Path(os.environ['OS_ROOT']) / 'AI-VERSE.yaml'
+          text = manifest.read_text(encoding='utf-8')
+          needle = 'extensions:\n  memory:\n'
+          if needle not in text:
+              raise SystemExit('current OS manifest extension layout changed; review the contract fixture')
+          replacement = (
+              'extensions:\n'
+              '  brain:\n'
+              '    supported: true\n'
+              '    enabled: true\n'
+              '  memory:\n'
+          )
+          manifest.write_text(text.replace(needle, replacement, 1), encoding='utf-8')
+          PY
+
+      - name: Establish OS-owned direction and initialize Brain
+        shell: bash
+        run: |
+          set -euo pipefail
+          OS_ROOT="$RUNNER_TEMP/AI-Verse-OS"
+          mkdir -p "$OS_ROOT/operator/profile" "$OS_ROOT/operator/context"
+          cat > "$OS_ROOT/operator/profile/goals.md" <<'EOF'
+          # Operator Goals
+
+          ## Current horizon
+
+          - Preserve the existing OS goal through handover
+          EOF
+          cat > "$OS_ROOT/operator/context/CURRENT.md" <<'EOF'
+          # Current Operator Context
+
+          ## Current priorities
+
+          - Ship the current milestone safely
+          EOF
+
+          node "$OS_ROOT/scripts/direction-owner.mjs" status --root "$OS_ROOT" --scope operator | grep -q '"owner": "os"'
+          node "$OS_ROOT/scripts/direction-owner.mjs" assert-strategic-write --root "$OS_ROOT" --scope operator
+          ai-verse-brain init "$OS_ROOT" --apply
+
+          # Brain installation must not silently steal direction ownership.
+          node "$OS_ROOT/scripts/direction-owner.mjs" status --root "$OS_ROOT" --scope operator | grep -q '"owner": "os"'
+          set +e
+          ai-verse-brain onboard "$OS_ROOT" --scope operator --answers <(printf '%s' '{"desired_state":"parallel goal","success_definition":"must not write"}') --apply > "$RUNNER_TEMP/pre-handover-onboard.json"
+          status=$?
+          set -e
+          test "$status" -eq 2
+
+      - name: Perform explicit handover and prove shared marker interoperability
+        shell: bash
+        run: |
+          set -euo pipefail
+          OS_ROOT="$RUNNER_TEMP/AI-Verse-OS"
+
+          ai-verse-brain direction-owner "$OS_ROOT" --scope operator --handover-to-brain > "$RUNNER_TEMP/handover-plan.json"
+          grep -q 'Preserve the existing OS goal through handover' "$RUNNER_TEMP/handover-plan.json"
+          grep -q 'Ship the current milestone safely' "$RUNNER_TEMP/handover-plan.json"
+
+          ai-verse-brain direction-owner "$OS_ROOT" --scope operator --handover-to-brain --apply --confirm-import > "$RUNNER_TEMP/handover-result.json"
+          grep -q '"owner": "brain"' "$RUNNER_TEMP/handover-result.json"
+          test -f "$OS_ROOT/.aiverse/direction/ownership.json"
+          test -f "$OS_ROOT/.aiverse/direction/views/operator.md"
+          grep -q 'AI-Verse Brain is the strategic direction owner' "$OS_ROOT/.aiverse/direction/views/operator.md"
+
+          # The OS checker must independently observe Brain ownership and refuse strategic writes.
+          set +e
+          node "$OS_ROOT/scripts/direction-owner.mjs" assert-strategic-write --root "$OS_ROOT" --scope operator > "$RUNNER_TEMP/os-write.out" 2> "$RUNNER_TEMP/os-write.err"
+          status=$?
+          set -e
+          test "$status" -eq 3
+          grep -q 'owned by Brain' "$RUNNER_TEMP/os-write.err"
+
+          # Both legacy OS statements must exist in confirmed Brain intent with provenance.
+          export OS_ROOT
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+
+          root = Path(os.environ['OS_ROOT'])
+          intent_dir = root / 'operator' / 'brain' / 'intent'
+          objects = [json.loads(p.read_text(encoding='utf-8')) for p in intent_dir.glob('*.json')]
+          confirmed = [o for o in objects if o.get('status') in {'CONFIRMED', 'ACTIVE'}]
+          statements = {o.get('payload', {}).get('statement') for o in confirmed}
+          expected = {
+              'Preserve the existing OS goal through handover',
+              'Ship the current milestone safely',
+          }
+          if not expected.issubset(statements):
+              raise SystemExit(f'missing imported statements: {expected - statements}')
+          for obj in confirmed:
+              if obj.get('payload', {}).get('statement') not in expected:
+                  continue
+              provenance = obj['payload'].get('provenance', {})
+              if provenance.get('source') != 'ai-verse-os':
+                  raise SystemExit('imported intent lost OS provenance')
+              if not provenance.get('source_path') or not provenance.get('source_sha256'):
+                  raise SystemExit('imported intent missing path/hash provenance')
+              if provenance.get('import_confirmed') is not True:
+                  raise SystemExit('imported intent was not explicitly confirmed')
+          PY
+
+      - name: Brain loss does not reactivate OS strategy
+        shell: bash
+        run: |
+          set -euo pipefail
+          OS_ROOT="$RUNNER_TEMP/AI-Verse-OS"
+          rm -rf "$OS_ROOT/operator/brain" "$OS_ROOT/runtime/ai-verse-brain"
+
+          # The durable ownership marker is independent of Brain process/state availability.
+          set +e
+          node "$OS_ROOT/scripts/direction-owner.mjs" assert-strategic-write --root "$OS_ROOT" --scope operator > /dev/null 2> "$RUNNER_TEMP/after-loss.err"
+          status=$?
+          set -e
+          test "$status" -eq 3
+          grep -q 'owned by Brain' "$RUNNER_TEMP/after-loss.err"
+
+      - name: Handover does not dirty tracked OS files
+        shell: bash
+        run: |
+          set -euo pipefail
+          OS_ROOT="$RUNNER_TEMP/AI-Verse-OS"
+          # Remove only the test-only registration change. User/Brain state is intentionally ignored by OS Git.
+          git -C "$OS_ROOT" checkout -- AI-VERSE.yaml
+          test -z "$(git -C "$OS_ROOT" status --porcelain --untracked-files=no)"
