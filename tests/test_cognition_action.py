@@ -19,6 +19,18 @@ class FakeHost:
         self.response = response or {"status": "succeeded", "receipt_id": "receipt-1", "result": {"ok": True}}
         self.error = error
         self.calls = 0
+        self.permission_calls = 0
+
+    def authorize_action(self, request):
+        self.permission_calls += 1
+        return {
+            "decision": "allow",
+            "request_fingerprint": request["request_fingerprint"],
+            "scope": request["scope"],
+            "action_class": request["action_class"],
+            "source": "test-host",
+            "reason": "fixture permits the action",
+        }
 
     def request_action(self, request):
         self.calls += 1
@@ -132,7 +144,7 @@ class ActionBoundaryTests(unittest.TestCase):
             executor.execute(request, host, approval=self.approval(request), host_idempotency_supported=True)
             shutil.rmtree(root / ".ai-verse-brain" / "runtime", ignore_errors=True)
             second_executor = ActionExecutor(root, BrainPolicy())
-            outcome = second_executor.execute(request, host, host_idempotency_supported=True)
+            outcome = second_executor.execute(request, host, approval=self.approval(request), host_idempotency_supported=True)
             self.assertTrue(outcome.duplicate)
             self.assertEqual(outcome.receipt_id, "receipt-1")
             self.assertEqual(host.calls, 1)
@@ -162,7 +174,7 @@ class ActionBoundaryTests(unittest.TestCase):
                 source=AuthorityTier.VERIFIED_EVIDENCE,
             )
             self.assertEqual(reconciled.status, "succeeded")
-            duplicate = executor.execute(request, host, host_idempotency_supported=True)
+            duplicate = executor.execute(request, host, approval=self.approval(request), host_idempotency_supported=True)
             self.assertTrue(duplicate.duplicate)
             self.assertEqual(duplicate.receipt_id, "verified-receipt")
             self.assertEqual(host.calls, 1)
