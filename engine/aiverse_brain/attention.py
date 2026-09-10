@@ -38,8 +38,9 @@ class AttentionLedger:
     """Disposable delivery ledger. Canonical dismissal/rejection state remains on Brain objects."""
 
     def __init__(self, runtime_dir: Path):
-        self.directory = Path(runtime_dir) / "attention"
-        self.directory.mkdir(parents=True, exist_ok=True)
+        self.runtime_dir = Path(runtime_dir)
+        self.root = self.runtime_dir.parent.parent
+        self.directory = self.runtime_dir / "attention"
         self.lock = RuntimeKeyLock(runtime_dir, namespace="attention")
 
     @staticmethod
@@ -62,6 +63,9 @@ class AttentionLedger:
         return data
 
     def _write(self, scope: str, data: Dict[str, Any]) -> None:
+        from .write_gate import require_write_ready
+        require_write_ready(str(self.root))
+        self.directory.mkdir(parents=True, exist_ok=True)
         path = self._path(scope)
         fd, temp_name = tempfile.mkstemp(prefix=".attention-", suffix=".tmp", dir=str(self.directory))
         try:
@@ -127,7 +131,6 @@ class AttentionLedger:
                 "notification": actual.value,
                 "session_id": session_id,
             }
-            # Keep runtime ledgers bounded. The canonical object lifecycle owns long history.
             for key in sorted(data["days"].keys())[:-14]:
                 data["days"].pop(key, None)
             if len(data["sessions"]) > 100:

@@ -41,7 +41,13 @@ class TriggerLedger:
     """Disposable runtime ledger. It prevents duplicate ticks; it is not canonical intent state."""
 
     def __init__(self, runtime_dir: Path):
-        self.dir = Path(runtime_dir) / "trigger-receipts"
+        self.runtime_dir = Path(runtime_dir)
+        self.root = self.runtime_dir.parent.parent
+        self.dir = self.runtime_dir / "trigger-receipts"
+
+    def _prepare_write(self) -> None:
+        from .write_gate import require_write_ready
+        require_write_ready(str(self.root))
         self.dir.mkdir(parents=True, exist_ok=True)
 
     def _path(self, key: str) -> Path:
@@ -49,6 +55,7 @@ class TriggerLedger:
         return self.dir / f"{digest}.json"
 
     def claim(self, trigger: Trigger) -> Path:
+        self._prepare_write()
         path = self._path(trigger.idempotency_key)
         payload: Dict[str, Any] = {
             "trigger_id": trigger.trigger_id,
@@ -67,6 +74,7 @@ class TriggerLedger:
         return path
 
     def complete(self, trigger: Trigger) -> None:
+        self._prepare_write()
         path = self._path(trigger.idempotency_key)
         data = json.loads(path.read_text(encoding="utf-8"))
         data["status"] = "completed"
@@ -77,6 +85,8 @@ class TriggerLedger:
 
     def recover_stale_claim(self, idempotency_key: str, *, minimum_age_seconds: int = 300) -> bool:
         """Explicit recovery only. Completed receipts are never cleared by this method."""
+        from .write_gate import require_write_ready
+        require_write_ready(str(self.root))
         path = self._path(idempotency_key)
         if not path.exists():
             return False

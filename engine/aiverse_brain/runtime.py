@@ -12,6 +12,7 @@ from .policy import BrainPolicy
 from .proposal_apply import AppliedProposal, ProposalApplier
 from .ranking import NotificationClass
 from .reasoner import ContextAssembler, ReasonerAdapter, parse_reasoner_output
+from .write_gate import require_write_ready
 
 
 @dataclass(frozen=True)
@@ -119,6 +120,7 @@ class BrainRuntime:
         A process crash leaves a claimed receipt for explicit stale-claim recovery.
         """
 
+        require_write_ready(str(self.controller.layout.root))
         self._refresh_policy(trigger.scope.value)
         model_id = self._reasoner_id(reasoner)
         self.controller.trigger_ledger.claim(trigger)
@@ -179,6 +181,7 @@ class BrainRuntime:
     ) -> ActionOutcome:
         """Explicit action path. No cognition proposal can call this implicitly."""
 
+        require_write_ready(str(self.controller.layout.root))
         self._refresh_policy(request.scope.value)
         return self.action_executor.execute(
             request,

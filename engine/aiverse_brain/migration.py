@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Tuple
 from ._version import INSTALLATION_SCHEMA_VERSION, STATE_SCHEMA_VERSION, __version__
 from .errors import ValidationError
 from .installation import installation_marker_path
+from .write_gate import require_write_ready
 
 
 def _version_tuple(value: str) -> Tuple[int, ...]:
@@ -134,6 +135,7 @@ def _atomic_marker_write(path: Path, data: Dict[str, Any]) -> None:
 
 
 def apply_migration(root: str) -> MigrationPlan:
+    require_write_ready(root)
     plan = plan_migration(root)
     if not plan.safe_to_apply:
         raise ValidationError("Brain migration blocked: " + "; ".join(plan.blockers))

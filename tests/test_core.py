@@ -6,6 +6,7 @@ from aiverse_brain.authority import AuthorityTier, assert_control_channel, asser
 from aiverse_brain.cadence import Trigger
 from aiverse_brain.controller import BrainController
 from aiverse_brain.errors import AuthorityError, DuplicateTrigger, PermissionDenied, PolicyViolation, RevisionConflict, TransitionError, ValidationError
+from aiverse_brain.installation import initialize
 from aiverse_brain.models import BrainObject, EvidenceRef, Scope
 from aiverse_brain.policy import BrainPolicy, ProactivityLevel
 from aiverse_brain.ranking import Eligibility, ScoreComponents, NotificationClass, rank
@@ -177,7 +178,11 @@ class StorageTests(unittest.TestCase):
             (root / "operator").mkdir()
             (root / "workspaces" / "a").mkdir(parents=True)
             (root / "workspaces" / "b").mkdir(parents=True)
-            (root / "AI-VERSE.yaml").write_text('schema_version: "2.0"\narchitecture: unified-workspace\n', encoding="utf-8")
+            (root / "AI-VERSE.yaml").write_text(
+                'schema_version: "2.0"\narchitecture: unified-workspace\nextensions:\n  brain:\n    supported: true\n    enabled: true\n',
+                encoding="utf-8",
+            )
+            initialize(str(root))
             controller = BrainController(str(root))
             controller.create("initiative", "workspace:a", "DISCOVERED", initiative_payload("a"))
             self.assertEqual(len(controller.store.list("initiative", "workspace:a")), 1)

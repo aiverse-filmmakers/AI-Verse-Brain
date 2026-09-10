@@ -159,6 +159,9 @@ class ObjectStore:
         return BrainObject.from_dict(json.loads(path.read_text(encoding="utf-8")))
 
     def save(self, obj: BrainObject, *, expected_revision: Optional[int]) -> BrainObject:
+        if self.layout.mode == "native":
+            from .write_gate import require_write_ready
+            require_write_ready(str(self.layout.root))
         validate_object(obj.kind, obj.status, obj.payload)
         path = self.layout.object_path(obj)
         path.parent.mkdir(parents=True, exist_ok=True)

@@ -17,8 +17,9 @@ class RuntimeKeyLock:
     """Short-lived, disposable cross-process lock for runtime coordination keys."""
 
     def __init__(self, runtime_dir: Path, *, namespace: str, ttl_seconds: int = 60):
-        self.directory = Path(runtime_dir) / "locks" / namespace
-        self.directory.mkdir(parents=True, exist_ok=True)
+        self.runtime_dir = Path(runtime_dir)
+        self.root = self.runtime_dir.parent.parent
+        self.directory = self.runtime_dir / "locks" / namespace
         self.ttl_seconds = ttl_seconds
 
     def _path(self, key: str) -> Path:
@@ -29,6 +30,9 @@ class RuntimeKeyLock:
     def acquire(self, key: str) -> Iterator[None]:
         if not key:
             raise ValueError("lock key is required")
+        from .write_gate import require_write_ready
+        require_write_ready(str(self.root))
+        self.directory.mkdir(parents=True, exist_ok=True)
         path = self._path(key)
         token = str(uuid4())
         payload = json.dumps({"token": token, "acquired_at": utc_now(), "pid": os.getpid()}) + "\n"
