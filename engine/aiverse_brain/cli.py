@@ -21,6 +21,7 @@ from .migration import apply_migration, plan_migration
 from .models import Scope
 from .onboarding import OnboardingService
 from .runtime import BrainRuntime
+from .tick_output import build_tick_summary
 from .vendor import vendor_bridge_config, vendor_reasoner
 
 
@@ -125,35 +126,8 @@ def _print(data: object) -> None:
     print(json.dumps(data, indent=2, sort_keys=True))
 
 
-def _tick_summary(result, host_selection: HostSelection) -> dict:
-    return {
-        "ok": result.ok,
-        "trigger_type": result.trigger_type,
-        "scope": result.scope,
-        "host": host_selection.to_dict(),
-        "reasoner_calls": result.reasoner_calls,
-        "applied_refs": [item.object_ref for item in result.applied],
-        "surface_items": [
-            {
-                "object_ref": item.object_ref,
-                "proposal_kind": item.proposal_kind,
-                "notification": item.notification,
-                "reason": item.reason,
-                "attention_fingerprint": item.attention_fingerprint,
-            }
-            for item in result.surface_items
-        ],
-        "errors": [
-            {
-                "stage": item.stage,
-                "request_id": item.request_id,
-                "error_type": item.error_type,
-                "message": item.message,
-                "proposal_index": item.proposal_index,
-            }
-            for item in result.errors
-        ],
-    }
+def _tick_summary(result, host_selection: HostSelection, runtime: BrainRuntime) -> dict:
+    return build_tick_summary(result, host_selection, runtime)
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
@@ -258,13 +232,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 scope=scope,
                 idempotency_key=args.idempotency_key or f"cli:{args.trigger}:{scope.value}:{uuid4()}",
             )
-            result = BrainRuntime(root).run_tick(
+            runtime = BrainRuntime(root)
+            result = runtime.run_tick(
                 trigger,
                 host=host_selection.host,
                 reasoner=reasoner,
                 session_id=args.session_id,
             )
-            _print(_tick_summary(result, host_selection))
+            _print(_tick_summary(result, host_selection, runtime))
             return 0 if result.ok else 5
 
         if args.command == "doctor":
