@@ -56,7 +56,18 @@ workspaces/<id>/brain/
 runtime/ai-verse-brain/
 ```
 
-The installer does not edit `AI-VERSE.yaml`. Native mode therefore requires the host to already expose the supported Brain extension contract. An incompatible host is a blocker, never a reason to silently create a parallel store.
+The installer does not edit `AI-VERSE.yaml`. Native mode therefore requires the host to already expose an explicit write-ready Brain registration:
+
+```yaml
+extensions:
+  brain:
+    supported: true
+    enabled: true
+```
+
+A missing, disabled, unsupported or ambiguous registration is a blocker. An incompatible host is also a blocker, never a reason to silently create a parallel store.
+
+Initialization is the only native bootstrap exception to the installation-marker requirement: it may create Brain-owned state and `operator/brain/installation.json` only after the compatible, supported and enabled host registration has been validated. After that, public native SDK/CLI/runtime write paths require the valid installation marker as well as the live registration. Disabling the registration therefore disables new Brain writes without deleting existing state.
 
 ## 4. Onboard explicit intent
 
@@ -125,7 +136,7 @@ ai-verse-brain run-tick /path/to/your/agent/root --vendor codex --context-file /
 ai-verse-brain doctor /path/to/your/agent/root
 ```
 
-Doctor is read-only. It checks host compatibility, parallel-store risk, installation/version integrity, scoped Brain state and onboarding readiness.
+Doctor is read-only. It checks host compatibility, native registration readiness, parallel-store risk, installation/version integrity, scoped Brain state and onboarding readiness.
 
 ## Cadence
 
@@ -150,6 +161,6 @@ Apply only a registered safe migration or package metadata refresh:
 ai-verse-brain migrate /path/to/your/agent/root --apply
 ```
 
-Newer state, unsupported marker schemas and unknown older schemas fail closed. User Brain state is never destructively rewritten merely because a package version changed.
+Newer state, unsupported marker schemas and unknown older schemas fail closed. Native migration writes also require the live supported+enabled Brain registration and valid installation marker. User Brain state is never destructively rewritten merely because a package version changed.
 
 See [`VENDOR-REASONERS.md`](VENDOR-REASONERS.md), [`ADAPTERS.md`](ADAPTERS.md), [`RELEASE.md`](RELEASE.md) and [`../SECURITY.md`](../SECURITY.md).
