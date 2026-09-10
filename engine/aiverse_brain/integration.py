@@ -25,6 +25,9 @@ class IntegrationReport:
     architecture: Optional[str] = None
     memory_detected: bool = False
     brain_extension_slot: bool = False
+    brain_supported: Optional[bool] = None
+    brain_enabled: Optional[bool] = None
+    brain_registration_valid: bool = False
     warnings: List[str] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, object]:
@@ -36,6 +39,9 @@ class IntegrationReport:
             "architecture": self.architecture,
             "memory_detected": self.memory_detected,
             "brain_extension_slot": self.brain_extension_slot,
+            "brain_supported": self.brain_supported,
+            "brain_enabled": self.brain_enabled,
+            "brain_registration_valid": self.brain_registration_valid,
             "warnings": list(self.warnings),
         }
 
@@ -83,17 +89,72 @@ def _extract_scalar(text: str, key: str) -> Optional[str]:
     return match.group(1) if match else None
 
 
-def _extension_slot(text: str, name: str) -> bool:
-    in_extensions = False
-    for line in text.splitlines():
-        if not line.strip() or line.lstrip().startswith("#"):
+def _indent(line: str) -> int:
+    return len(line) - len(line.lstrip(" "))
+
+
+def _extension_settings(text: str, name: str) -> Optional[Dict[str, str]]:
+    """Return direct scalar settings for one top-level extensions entry.
+
+    This intentionally supports only the small host contract Brain needs rather
+    than acting as a general YAML parser. Ambiguous/duplicate registrations are
+    rejected by returning an invalid sentinel mapping.
+    """
+    lines = text.splitlines()
+    extensions_indent: Optional[int] = None
+    entry_indent: Optional[int] = None
+    found = 0
+    settings: Dict[str, str] = {}
+
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
             continue
-        if not line.startswith((" ", "\t")):
-            in_extensions = line.strip() == "extensions:"
+        indent = _indent(line)
+        if extensions_indent is None:
+            if stripped == "extensions:":
+                extensions_indent = indent
             continue
-        if in_extensions and re.match(rf"^\s{{2,}}{re.escape(name)}:\s*(?:#.*)?$", line):
-            return True
-    return False
+
+        if entry_indent is None:
+            if indent <= extensions_indent:
+                if stripped == "extensions:":
+                    continue
+                extensions_indent = None
+                continue
+            if re.match(rf"^{re.escape(name)}:\s*(?:#.*)?$", stripped):
+                found += 1
+                entry_indent = indent
+            continue
+
+        if indent <= entry_indent:
+            if re.match(rf"^{re.escape(name)}:\s*(?:#.*)?$", stripped) and indent == entry_indent:
+                found += 1
+            break
+        if ":" not in stripped:
+            continue
+        key, raw = stripped.split(":", 1)
+        value = raw.split("#", 1)[0].strip().strip("\"'")
+        if key in settings:
+            return {"__invalid__": "duplicate-key"}
+        settings[key] = value
+
+    if found == 0:
+        return None
+    if found != 1:
+        return {"__invalid__": "duplicate-registration"}
+    return settings
+
+
+def _contract_bool(settings: Optional[Dict[str, str]], key: str) -> Optional[bool]:
+    if not settings or "__invalid__" in settings or key not in settings:
+        return None
+    value = settings[key].strip().lower()
+    if value == "true":
+        return True
+    if value == "false":
+        return False
+    return None
 
 
 def _memory_detected(root: Path) -> bool:
@@ -131,6 +192,11 @@ def inspect_host(root: str) -> IntegrationReport:
         and operator_ok
         and workspaces_ok
     )
+    settings = _extension_settings(text, "brain")
+    brain_slot = settings is not None
+    brain_supported = _contract_bool(settings, "supported")
+    brain_enabled = _contract_bool(settings, "enabled")
+    registration_valid = bool(brain_slot and brain_supported is True and brain_enabled is True)
     warnings: List[str] = []
     if not compatible:
         warnings.append(
@@ -141,21 +207,31 @@ def inspect_host(root: str) -> IntegrationReport:
             schema_version=schema_version,
             architecture=architecture,
             memory_detected=_memory_detected(base),
-            brain_extension_slot=_extension_slot(text, "brain"),
+            brain_extension_slot=brain_slot,
+            brain_supported=brain_supported,
+            brain_enabled=brain_enabled,
+            brain_registration_valid=False,
             warnings=warnings,
         )
 
-    brain_slot = _extension_slot(text, "brain")
     if not brain_slot:
         warnings.append(
-            "compatible OS v2 detected but AI-VERSE.yaml has no extensions.brain slot; Brain must not patch the OS manifest implicitly"
+            "compatible OS v2 detected but AI-VERSE.yaml has no extensions.brain registration; Brain must not patch the OS manifest implicitly"
         )
+    elif brain_supported is not True:
+        warnings.append("extensions.brain.supported must be explicitly true before native Brain writes are allowed")
+    elif brain_enabled is not True:
+        warnings.append("extensions.brain.enabled must be explicitly true before native Brain writes are allowed")
+
     return IntegrationReport(
         str(base), HostMode.AI_VERSE_OS_V2, True,
         schema_version=schema_version,
         architecture=architecture,
         memory_detected=_memory_detected(base),
         brain_extension_slot=brain_slot,
+        brain_supported=brain_supported,
+        brain_enabled=brain_enabled,
+        brain_registration_valid=registration_valid,
         warnings=warnings,
     )
 
@@ -188,6 +264,19 @@ def native_path_contract(root: str, scope: str) -> NativePathContract:
     )
 
 
+def native_registration_blockers(report: IntegrationReport) -> List[str]:
+    if report.mode != HostMode.AI_VERSE_OS_V2:
+        return []
+    blockers: List[str] = []
+    if not report.brain_extension_slot:
+        blockers.append("AI-VERSE.yaml does not expose extensions.brain registration")
+    elif report.brain_supported is not True:
+        blockers.append("extensions.brain.supported must be explicitly true")
+    if report.brain_extension_slot and report.brain_enabled is not True:
+        blockers.append("extensions.brain.enabled must be explicitly true")
+    return blockers
+
+
 def plan_integration(root: str) -> IntegrationPlan:
     """Read-only integration plan. It never writes to the target host."""
     report = inspect_host(root)
@@ -218,9 +307,7 @@ def plan_integration(root: str) -> IntegrationPlan:
         {"action": "read_current_state", "target": "operator/workspace context", "owner": "os"},
         {"action": "read_history_when_needed", "target": "operator/workspace memory", "owner": "memory-or-os"},
     ]
-    blockers: List[str] = []
-    if not report.brain_extension_slot:
-        blockers.append("AI-VERSE.yaml does not yet expose an extensions.brain registration slot")
+    blockers = native_registration_blockers(report)
     notes = list(report.warnings)
     notes.append("Memory is optional; Brain must not copy or merge the Memory implementation")
     return IntegrationPlan(report.mode, not blockers, steps, blockers, notes)
