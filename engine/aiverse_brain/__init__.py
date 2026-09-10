@@ -39,6 +39,13 @@ from .orchestrator import TickPlanner
 from .policy import ProactivityLevel
 from .proposal_apply import AppliedProposal, ProposalApplier
 from .reasoner import ContextAssembler, ContextBundle, ReasonerAdapter, parse_reasoner_output
+from .retrieval import (
+    DEFAULT_MAX_CAPABILITY_CANDIDATES,
+    MAX_RETRIEVAL_QUERY_CHARS,
+    build_retrieval_query,
+    capability_relevance_score,
+    rank_capabilities,
+)
 from .runtime import BrainRuntime, SurfaceItem, TickRunResult
 from .vendor import vendor_bridge_config, vendor_reasoner
 from .vendor_bridge import VendorOptions
@@ -59,6 +66,8 @@ __all__ = [
     "TickPlanner", "ProactivityLevel",
     "AppliedProposal", "ProposalApplier",
     "ContextAssembler", "ContextBundle", "ReasonerAdapter", "parse_reasoner_output",
+    "DEFAULT_MAX_CAPABILITY_CANDIDATES", "MAX_RETRIEVAL_QUERY_CHARS",
+    "build_retrieval_query", "capability_relevance_score", "rank_capabilities",
     "BrainRuntime", "SurfaceItem", "TickRunResult",
     "ReadOnlyContextHost",
     "MigrationPlan", "plan_migration", "apply_migration",
