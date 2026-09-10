@@ -70,7 +70,7 @@ class ShipmentInitializationTests(unittest.TestCase):
             self.assertEqual((root / "AI-VERSE.yaml").read_text(encoding="utf-8"), manifest)
             self.assertFalse((root / "operator" / "brain").exists())
 
-    def test_native_ai_verse_with_slot_initializes_only_brain_owned_paths(self):
+    def test_native_ai_verse_with_enabled_registration_initializes_only_brain_owned_paths(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             manifest = (
@@ -79,6 +79,7 @@ class ShipmentInitializationTests(unittest.TestCase):
                 'extensions:\n'
                 '  brain:\n'
                 '    supported: true\n'
+                '    enabled: true\n'
             )
             (root / "AI-VERSE.yaml").write_text(manifest, encoding="utf-8")
             (root / "operator").mkdir()
