@@ -18,6 +18,9 @@ EVIDENCE_CLASSES = {
     "AUTHORITATIVE_EXTERNAL", "INDEPENDENT_EVALUATION", "CORROBORATED_HISTORY",
     "SINGLE_OBSERVATION", "MODEL_INFERENCE",
 }
+EVIDENCE_INDEPENDENCE = {
+    "same_context", "fresh_context", "independent_model", "external_authoritative",
+}
 
 
 def utc_now() -> str:
@@ -62,6 +65,9 @@ class EvidenceRef:
     expires_at: Optional[str] = None
     scope: Optional[str] = None
     integrity: Optional[str] = None
+    source_kind: Optional[str] = None
+    source_ref: Optional[str] = None
+    independence: Optional[str] = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.ref, str) or not self.ref.strip():
@@ -75,6 +81,13 @@ class EvidenceRef:
         if self.scope is not None:
             Scope(self.scope)
 
+        provenance = (self.source_kind, self.source_ref, self.independence)
+        if any(value is not None for value in provenance):
+            if any(not isinstance(value, str) or not value.strip() for value in provenance):
+                raise ValidationError("evidence provenance requires source_kind, source_ref, and independence together")
+            if self.independence not in EVIDENCE_INDEPENDENCE:
+                raise ValidationError(f"unknown evidence independence: {self.independence}")
+
     def to_dict(self) -> Dict[str, Any]:
         return {k: v for k, v in {
             "ref": self.ref,
@@ -84,6 +97,9 @@ class EvidenceRef:
             "expires_at": self.expires_at,
             "scope": self.scope,
             "integrity": self.integrity,
+            "source_kind": self.source_kind,
+            "source_ref": self.source_ref,
+            "independence": self.independence,
         }.items() if v is not None}
 
 

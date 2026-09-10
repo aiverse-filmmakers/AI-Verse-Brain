@@ -7,7 +7,7 @@ The mature replay/receipt implementation is preserved in
 adds an independent host permission gate around every new action dispatch.
 """
 
-from typing import Any, Optional
+from typing import Any, Mapping, Optional
 
 from .action_boundary_legacy import *  # noqa: F401,F403
 from .action_boundary_legacy import ActionExecutor as _CoreActionExecutor
@@ -57,6 +57,33 @@ class ActionExecutor(_CoreActionExecutor):
     blocks execution.  Malformed, missing, stale, or failing host permission
     checks fail closed.
     """
+
+    @staticmethod
+    def _minimal_response(response):
+        """Keep replay data minimal while retaining bounded capability identity."""
+        minimal = _CoreActionExecutor._minimal_response(response)
+        binding = response.get("execution_binding") if isinstance(response, Mapping) else None
+        if isinstance(binding, Mapping):
+            expected = {
+                "request_fingerprint", "scope", "action_class", "operation",
+                "provider_id", "capability_id", "generation_id", "package_digest",
+            }
+            digest = binding.get("package_digest")
+            if (
+                set(binding) == expected
+                and all(isinstance(binding.get(key), str) and binding.get(key) for key in expected - {"package_digest"})
+                and isinstance(digest, Mapping)
+                and set(digest) == {"algorithm", "value"}
+                and all(isinstance(digest.get(key), str) and digest.get(key) for key in ("algorithm", "value"))
+            ):
+                minimal["execution_binding"] = {
+                    key: binding[key] for key in expected - {"package_digest"}
+                }
+                minimal["execution_binding"]["package_digest"] = {
+                    "algorithm": digest["algorithm"],
+                    "value": digest["value"],
+                }
+        return minimal
 
     @staticmethod
     def _require_host_permission(
