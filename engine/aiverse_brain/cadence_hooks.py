@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from .cadence_plan import plan_cadence
 from .controller import BrainController
 from .effective_policy import assert_policy_tightens, clone_policy
+from .host_selection import validate_host_selection_options
 from .policy import BrainPolicy, ProactivityLevel
 
 
@@ -41,8 +43,17 @@ def render_cadence_hooks(
     background_ticks_per_day: Optional[int] = None,
     model: Optional[str] = None,
     provider: Optional[str] = None,
+    host_adapter_config: Optional[str] = None,
+    read_only_context: bool = False,
     context_file: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
+    """Render portable scheduler argv with an explicit, durable host choice."""
+
+    validate_host_selection_options(
+        host_adapter_config=host_adapter_config,
+        read_only_context=read_only_context,
+        context_file=context_file,
+    )
     policy = effective_cadence_policy(
         root,
         scope=scope,
@@ -65,12 +76,16 @@ def render_cadence_hooks(
             "--trigger",
             request.trigger_type,
         ]
+        if host_adapter_config:
+            command.extend(["--host-adapter", str(Path(host_adapter_config).expanduser().resolve())])
+        else:
+            command.append("--read-only-context")
         if model:
             command.extend(["--model", model])
         if provider:
             command.extend(["--provider", provider])
         if context_file:
-            command.extend(["--context-file", context_file])
+            command.extend(["--context-file", str(Path(context_file).expanduser().resolve())])
         hooks.append(
             {
                 "trigger_type": request.trigger_type,
@@ -78,6 +93,7 @@ def render_cadence_hooks(
                 "interval_seconds": request.interval_seconds,
                 "reason": request.reason,
                 "argv": command,
+                "host_mode": "bridge-host" if host_adapter_config else "read-only-context",
                 "scheduler_owned_by_brain": False,
             }
         )
