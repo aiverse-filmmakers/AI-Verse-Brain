@@ -103,6 +103,12 @@ class ActionExecutor(_CoreActionExecutor):
         approval: Optional[ApprovalGrant] = None,
         host_idempotency_supported: bool = False,
     ) -> ActionOutcome:
+        # A supplied grant is security-sensitive input.  Reject stale, unrelated,
+        # expired, or otherwise invalid approval before exposing the action to the
+        # host permission source.
+        if approval is not None:
+            approval.assert_valid_for(request)
+
         # Host permission is checked before the core can create a claimed dispatch
         # record, then checked again by the proxy at the exact request_action edge.
         # Brain's own ActionGate still runs unchanged inside the core executor, so
