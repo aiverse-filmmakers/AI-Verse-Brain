@@ -32,7 +32,10 @@
         "observed_at": {"type": "string"},
         "expires_at": {"type": "string"},
         "scope": {"type": "string"},
-        "integrity": {"type": "string"}
+        "integrity": {"type": "string"},
+        "source_kind": {"type": "string", "minLength": 1},
+        "source_ref": {"type": "string", "minLength": 1},
+        "independence": {"enum": ["same_context", "fresh_context", "independent_model", "external_authoritative"]}
       },
       "additionalProperties": false
     }
