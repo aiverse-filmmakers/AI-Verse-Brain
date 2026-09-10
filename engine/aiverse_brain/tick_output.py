@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Iterable, Mapping, Sequence
+from typing import Any, Dict, Iterable, Mapping, Optional, Sequence
 
 from .cognition import CognitionPurpose
 from .host_selection import HostSelection
@@ -15,7 +15,7 @@ _LABEL_KEYS = {
 }
 
 
-def _label(kind: str, item: Mapping[str, Any]) -> str | None:
+def _label(kind: str, item: Mapping[str, Any]) -> Optional[str]:
     payload = item.get("payload")
     if not isinstance(payload, Mapping):
         return None
