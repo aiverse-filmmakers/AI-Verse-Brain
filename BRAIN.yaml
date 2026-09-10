@@ -42,6 +42,7 @@ principles:
   vendor_reasoners_are_read_only: true
   brain_does_not_own_scheduler: true
   migrations_are_explicit_and_non_destructive: true
+  native_writes_require_live_registration_and_initialization: true
 
 modes:
   - ai-verse-os-v2
@@ -105,7 +106,10 @@ implemented_mechanisms:
   - dry_run_first_initialization
   - idempotent_installation_marker
   - state_schema_version_guard
-  - native_install_requires_existing_brain_extension_slot
+  - native_write_readiness_gate
+  - native_registration_requires_supported_and_enabled
+  - native_normal_writes_require_valid_installation_marker
+  - native_initialization_is_markerless_bootstrap_exception
   - adaptive_explicit_intent_onboarding
   - installation_and_onboarding_doctor_checks
   - universal_json_subprocess_bridge
