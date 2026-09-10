@@ -1,0 +1,282 @@
+name: Skills Receipt Contract
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  skills-receipt-contract:
+    runs-on: ubuntu-latest
+    env:
+      SKILLS_COMMIT: 558bbcb05ce9f42bb5be30730ea205a7e791bf86
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Brain
+        run: python -m pip install -e .
+
+      - name: Checkout merged Skills receipt v2 contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone https://github.com/aiverse-filmmakers/AI-Verse-Skills.git "$RUNNER_TEMP/AI-Verse-Skills"
+          git -C "$RUNNER_TEMP/AI-Verse-Skills" checkout --detach "$SKILLS_COMMIT"
+          test -f "$RUNNER_TEMP/AI-Verse-Skills/schemas/execution-receipt-v2.schema.json"
+          test -f "$RUNNER_TEMP/AI-Verse-Skills/installer/execution_receipt_v2.py"
+
+      - name: Prove exact action generation effect and verification semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          python <<'PY'
+          import copy
+          import importlib.util
+          import os
+          import tempfile
+          from pathlib import Path
+
+          from aiverse_brain.action_boundary import ActionRequest
+          from aiverse_brain.authority import AuthorityTier
+          from aiverse_brain.controller import BrainController
+          from aiverse_brain.errors import EvaluationError, ValidationError
+          from aiverse_brain.models import Scope
+          from aiverse_brain.skills_receipt import (
+              SkillsExecutionIdentity,
+              apply_receipt_to_objective,
+              translate_action_receipt,
+          )
+
+          skills_file = Path(os.environ["RUNNER_TEMP"]) / "AI-Verse-Skills" / "installer" / "execution_receipt_v2.py"
+          spec = importlib.util.spec_from_file_location("merged_skills_receipt_v2", skills_file)
+          assert spec and spec.loader
+          skills = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(skills)
+
+          digest = "b" * 64
+          identity = SkillsExecutionIdentity(
+              "aiverse-skills:demo-skill",
+              "gen-20260910T120000000000Z-deadbeef",
+              digest,
+          )
+
+          def action(key):
+              return ActionRequest(
+                  action_class="send_message",
+                  scope=Scope("operator"),
+                  operation="demo.operation",
+                  parameters={"text": "hello"},
+                  idempotency_key=key,
+                  in_scope=True,
+                  within_budget=True,
+                  reversible=False,
+              )
+
+          def receipt(req, status="success"):
+              return {
+                  "contract": "aiverse-execution-receipt-v2",
+                  "receipt_id": f"receipt-{req.idempotency_key}",
+                  "status": status,
+                  "summary": "contract acceptance",
+                  "binding": {
+                      "request_fingerprint": req.fingerprint(),
+                      "scope": req.scope.value,
+                      "action_class": req.action_class,
+                      "operation": req.operation,
+                      "provider_id": "aiverse-skills",
+                      "capability_id": identity.capability_id,
+                      "generation_id": identity.generation_id,
+                      "package_digest": {
+                          "algorithm": "aiverse-package-sha256-v1",
+                          "value": digest,
+                      },
+                  },
+                  "effect": {
+                      "state": "occurred",
+                      "source_kind": "ai_verse_os",
+                      "source_ref": "os-effect:acceptance",
+                      "independence": "same_context",
+                  },
+                  "verification_context": {
+                      "evaluator_id": "skills-runtime",
+                      "independence": "same_context",
+                  },
+                  "verification": [],
+                  "warnings": [],
+                  "remaining_uncertainty": [],
+                  "trace_id": f"trace-{req.idempotency_key}",
+              }
+
+          def expected(req):
+              return {
+                  "request_fingerprint": req.fingerprint(),
+                  "scope": req.scope.value,
+                  "action_class": req.action_class,
+                  "operation": req.operation,
+                  "provider_id": "aiverse-skills",
+                  "capability_id": identity.capability_id,
+                  "generation_id": identity.generation_id,
+                  "package_digest": {
+                      "algorithm": "aiverse-package-sha256-v1",
+                      "value": digest,
+                  },
+              }
+
+          req = action("success")
+          good = receipt(req)
+          skills.validate_receipt(good, expected_binding=expected(req))
+          translated = translate_action_receipt(good, req, identity)
+          assert translated["status"] == "succeeded"
+          assert translated["effect_occurred"] is True
+          assert translated["execution_binding"]["generation_id"] == identity.generation_id
+
+          trace_only = copy.deepcopy(good)
+          trace_only["receipt_id"] = trace_only["trace_id"]
+          try:
+              skills.validate_receipt(trace_only, expected_binding=expected(req))
+              raise AssertionError("merged Skills accepted trace_id as receipt proof")
+          except ValueError:
+              pass
+          try:
+              translate_action_receipt(trace_only, req, identity)
+              raise AssertionError("Brain accepted trace_id as receipt proof")
+          except ValidationError:
+              pass
+
+          stale = copy.deepcopy(good)
+          stale["binding"]["generation_id"] = "gen-stale"
+          try:
+              skills.validate_receipt(stale, expected_binding=expected(req))
+              raise AssertionError("merged Skills accepted stale generation")
+          except ValueError:
+              pass
+          try:
+              translate_action_receipt(stale, req, identity)
+              raise AssertionError("Brain accepted stale generation")
+          except ValidationError:
+              pass
+
+          partial_req = action("partial")
+          partial = receipt(partial_req, status="partial")
+          partial["effect"] = {
+              "state": "uncertain",
+              "source_kind": "skill_runtime",
+              "source_ref": "skill-run:partial",
+              "independence": "same_context",
+          }
+          skills.validate_receipt(partial, expected_binding=expected(partial_req))
+          translated = translate_action_receipt(partial, partial_req, identity)
+          assert translated["status"] == "uncertain"
+          assert translated["effect_occurred"] is None
+
+          def make_verifying(controller, level="V2"):
+              obj = controller.create("objective", "operator", "QUEUED", {
+                  "outcome": "verified effect",
+                  "criteria": [{"id": "c1", "statement": "effect verified", "status": "unverified"}],
+                  "progress": "progressing",
+                  "verification_level": level,
+                  "budget": {"max_attempts": 8},
+                  "stall_threshold": 3,
+              })
+              obj = controller.transition("objective", "operator", obj.id, "READY", source=AuthorityTier.VALIDATED_STRATEGY, actor="brain")
+              obj = controller.transition("objective", "operator", obj.id, "RUNNING", source=AuthorityTier.VALIDATED_STRATEGY, actor="brain")
+              return controller.transition("objective", "operator", obj.id, "VERIFYING", source=AuthorityTier.VALIDATED_STRATEGY, actor="brain")
+
+          no_proof_req = action("no-proof")
+          no_proof = receipt(no_proof_req)
+          no_proof["verification_context"] = {
+              "evaluator_id": "fresh-verifier",
+              "independence": "fresh_context",
+              "builder_context_id": "builder",
+              "evaluator_context_id": "fresh",
+          }
+          skills.validate_receipt(no_proof, expected_binding=expected(no_proof_req))
+          with tempfile.TemporaryDirectory() as temp:
+              controller = BrainController(temp)
+              obj = make_verifying(controller)
+              applied = apply_receipt_to_objective(
+                  controller,
+                  scope="operator",
+                  objective_id=obj.id,
+                  receipt=no_proof,
+                  request=no_proof_req,
+                  identity=identity,
+              )
+              assert applied.status == "INSUFFICIENT_EVIDENCE"
+              assert applied.payload["progress"] != "verified_complete"
+
+          verified_req = action("verified")
+          verified = receipt(verified_req)
+          verified["verification_context"] = {
+              "evaluator_id": "ai-verse-os-verifier",
+              "independence": "fresh_context",
+              "builder_context_id": "builder",
+              "evaluator_context_id": "os-verifier",
+          }
+          verified["verification"] = [{
+              "criterion_id": "c1",
+              "status": "passed",
+              "evidence": [{
+                  "ref": "os-proof:acceptance",
+                  "kind": "measurement",
+                  "source_kind": "ai_verse_os",
+                  "source_ref": "os-verifier:acceptance",
+                  "independence": "fresh_context",
+                  "scope": "operator",
+              }],
+          }]
+          skills.validate_receipt(verified, expected_binding=expected(verified_req))
+          with tempfile.TemporaryDirectory() as temp:
+              controller = BrainController(temp)
+              obj = make_verifying(controller)
+              applied = apply_receipt_to_objective(
+                  controller,
+                  scope="operator",
+                  objective_id=obj.id,
+                  receipt=verified,
+                  request=verified_req,
+                  identity=identity,
+              )
+              assert applied.status == "PASSED"
+              assert applied.payload["progress"] == "verified_complete"
+              evaluation = controller.store.load("evaluation", "operator", applied.payload["evaluation_refs"][-1])
+              evidence = evaluation.evidence_refs[0]
+              assert evidence.evidence_class == "DIRECT_MEASUREMENT"
+              assert evidence.source_kind == "ai_verse_os"
+              assert evidence.source_ref == "os-verifier:acceptance"
+              assert evidence.independence == "fresh_context"
+
+          weak_req = action("weak")
+          weak = copy.deepcopy(verified)
+          weak["receipt_id"] = "receipt-weak"
+          weak["trace_id"] = "trace-weak"
+          weak["binding"]["request_fingerprint"] = weak_req.fingerprint()
+          weak["binding"]["operation"] = weak_req.operation
+          weak["verification"][0]["evidence"][0]["kind"] = "observation"
+          skills.validate_receipt(weak, expected_binding=expected(weak_req))
+          with tempfile.TemporaryDirectory() as temp:
+              controller = BrainController(temp)
+              obj = make_verifying(controller)
+              try:
+                  apply_receipt_to_objective(
+                      controller,
+                      scope="operator",
+                      objective_id=obj.id,
+                      receipt=weak,
+                      request=weak_req,
+                      identity=identity,
+                  )
+                  raise AssertionError("weak observation closed V2 objective")
+              except EvaluationError:
+                  pass
+
+          print("Merged Skills receipt v2 <-> Brain verification contract: PASS")
+          PY
