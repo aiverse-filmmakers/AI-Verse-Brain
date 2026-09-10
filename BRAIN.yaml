@@ -43,6 +43,9 @@ principles:
   brain_does_not_own_scheduler: true
   migrations_are_explicit_and_non_destructive: true
   native_writes_require_live_registration_and_initialization: true
+  history_retrieval_uses_semantic_task_queries: true
+  capability_ranking_precedes_reasoning_limit: true
+  capability_candidate_overflow_fails_closed: true
 
 modes:
   - ai-verse-os-v2
@@ -96,6 +99,10 @@ implemented_mechanisms:
   - idempotent_side_effect_coordination
   - uncertain_outcome_replay_blocking_and_reconciliation
   - bounded_ephemeral_context_assembly
+  - semantic_history_retrieval_queries
+  - deterministic_capability_relevance_ranking
+  - rank_before_reasoning_context_limit
+  - bounded_capability_candidate_overflow_rejection
   - strict_reasoner_output_parsing
   - deterministic_proposal_application
   - whole_tick_trigger_receipts

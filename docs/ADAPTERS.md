@@ -141,6 +141,29 @@ Advertising an operation never grants authority. `ActionExecutor` and Brain poli
 
 For users who only need safe cognition, the built-in `ReadOnlyContextHost` is intentionally smaller: current context only, no history ownership, no scheduler, no notifications and no write/action path. Runtime use of it must be selected explicitly.
 
+## Retrieval semantics
+
+Brain owns the retrieval intent. Host adapters own access to their data sources.
+
+For history, Brain now constructs a bounded semantic query from the cognition purpose, current host context, and the relevant canonical Brain objects. A `reflection` or `gap_analysis` enum value is never used as the query itself. `retrieve_history(query, scope)` should treat `query` as semantic recall text. An adapter backed by AI-Verse Memory should pass that text into Memory recall/search for the same scope and return the ranked result objects.
+
+For capabilities, `list_capabilities(scope)` should return the complete bounded candidate set visible in that scope, using provider metadata such as:
+
+```text
+id
+name
+description
+operators
+dependencies
+tags / keywords when available
+```
+
+Brain ranks those candidates deterministically against a task-specific capability query **before** applying its reasoning-context limit. Provider order is not task relevance. A relevant capability at the end of a valid bounded provider result must be able to outrank irrelevant entries at the beginning.
+
+Brain's default candidate ceiling is 1000 entries. If a host would exceed that ceiling it should scope/filter the provider result explicitly. Brain fails closed on overflow rather than silently truncating the candidate set and pretending the tail was considered.
+
+The semantic queries used for the current context assembly are exposed in `ContextBundle.retrieval_queries` for auditability. They remain query metadata, not authority and not canonical Brain state.
+
 ## Failure semantics
 
 Brain fails closed if an adapter:
@@ -153,7 +176,8 @@ Brain fails closed if an adapter:
 - returns the wrong protocol/request ID;
 - returns an invalid result shape;
 - uses an operation it did not advertise;
-- is selected as a runtime host but does not advertise the complete required read surface.
+- is selected as a runtime host but does not advertise the complete required read surface;
+- returns a capability candidate stream beyond Brain's explicit bounded candidate budget.
 
 Do not create fallback code that bypasses these errors by directly mutating Brain state or silently choosing another host.
 

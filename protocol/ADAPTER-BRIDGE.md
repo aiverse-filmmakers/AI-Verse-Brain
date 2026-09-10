@@ -110,6 +110,35 @@ An advertised operation means only that the adapter can perform it. It does **no
 
 For example, `request_action` is reached only through the explicit `ActionExecutor` path after Brain's action-class policy, scope, budget, approval and replay-safety gates have passed.
 
+### `retrieve_history`
+
+Brain sends:
+
+```json
+{
+  "query": "bounded semantic recall text derived from the actual cognition task",
+  "scope": "operator"
+}
+```
+
+The query is not an internal purpose token. Host adapters should execute semantic/history retrieval against that text in the requested scope. An AI-Verse Memory-backed adapter should use the query as Memory recall/search text and return the ranked result objects. The result must be an array of objects.
+
+### `list_capabilities`
+
+Brain sends:
+
+```json
+{
+  "scope": "operator"
+}
+```
+
+The host should return the complete **bounded** candidate set visible to that scope. Provider order is not considered task relevance. Brain constructs its own task-specific capability query, scores provider-style fields such as `id`, `name`, `description`, `operators`, `dependencies`, `tags`, and `keywords`, ranks the candidates, and only then applies the reasoning-context limit.
+
+This keeps the bridge protocol backward compatible while preventing the previous first-N truncation failure. Brain's default candidate ceiling is 1000 entries; an over-budget candidate stream fails closed instead of being silently truncated.
+
+The generated semantic history/capability queries may be included in the ephemeral `ContextBundle.retrieval_queries` for observability. They are data/query metadata only and never grant authority.
+
 ## Idempotency
 
 `describe.idempotency_supported` tells Brain whether the host provides an idempotent external action boundary.
@@ -155,6 +184,7 @@ The bridge fails closed on:
 - request ID mismatch;
 - malformed handshake;
 - undeclared host operation;
-- unexpected result type.
+- unexpected result type;
+- an over-budget capability candidate stream presented to Brain context assembly.
 
 Adapter failure becomes an execution error, not permission to switch to a different authority path.
