@@ -86,8 +86,9 @@ class EffectivePolicyTests(unittest.TestCase):
             self.assertEqual(restarted.policy.proactivity, ProactivityLevel.P0_REACTIVE)
             self.assertEqual(restarted.policy.action_decision("read_local"), "deny")
 
-            hooks = render_cadence_hooks(temp, vendor="codex")
+            hooks = render_cadence_hooks(temp, vendor="codex", read_only_context=True)
             self.assertEqual([item["trigger_type"] for item in hooks], ["session_start", "session_end"])
+            self.assertTrue(all("--read-only-context" in item["argv"] for item in hooks))
 
             runtime = BrainRuntime(temp)
             runtime.run_tick(
@@ -151,7 +152,7 @@ class EffectivePolicyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             self.persist_restrictive_policy(temp)
             with self.assertRaises(ValidationError):
-                render_cadence_hooks(temp, vendor="codex", proactivity=2)
+                render_cadence_hooks(temp, vendor="codex", proactivity=2, read_only_context=True)
 
     def test_caller_policy_override_may_not_weaken_canonical_policy(self):
         with tempfile.TemporaryDirectory() as temp:

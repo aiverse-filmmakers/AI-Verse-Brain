@@ -50,6 +50,45 @@ Validate it and perform a live handshake:
 ai-verse-brain adapter-doctor /path/to/adapter.json
 ```
 
+## Explicit runtime host selection
+
+`run-tick` never guesses a host and never silently downgrades a requested real host to the built-in read-only stub.
+
+For a real runtime/agent host, pass its bridge config explicitly:
+
+```bash
+ai-verse-brain run-tick . \
+  --vendor codex \
+  --host-adapter /absolute/path/to/host-adapter.json
+```
+
+Before the reasoner starts, Brain loads the config, starts the adapter, validates the bridge handshake, and requires the host to advertise all runtime read operations:
+
+```text
+read_context
+retrieve_history
+list_capabilities
+list_connections
+```
+
+If the config is unreadable, the process cannot start, the bridge handshake fails, or any required read operation is missing, the tick fails closed. Brain does not replace that host with another adapter.
+
+The tick result reports the selected host mode, adapter ID, advertised operations, config name/path, and idempotency support. It does not persist credential values.
+
+The limited current-context-only host remains available only through an explicit opt-in:
+
+```bash
+ai-verse-brain run-tick . \
+  --vendor codex \
+  --read-only-context
+```
+
+`--context-file` is valid only with `--read-only-context`; it cannot override data supplied by a real host adapter.
+
+`cadence-hooks` follows the same rule. Every generated scheduler argv preserves either `--host-adapter ...` or `--read-only-context`, so scheduled ticks cannot acquire a different implicit host later.
+
+Programmatic callers can use `select_host(...)` and receive a `HostSelection` carrying both the selected `HostAdapter` and non-secret selection metadata.
+
 ## Credentials
 
 Do not put credential values in adapter JSON or command arguments.
@@ -78,7 +117,7 @@ Do not let the model decide Brain scope, lifecycle status, permissions, approval
 
 A host can expose read operations and, where necessary, separately authorized execution operations.
 
-Recommended read-oriented operations:
+Required read operations for a host selected by `run-tick`:
 
 ```text
 read_context
@@ -100,7 +139,7 @@ write_route
 
 Advertising an operation never grants authority. `ActionExecutor` and Brain policy remain in front of external effects.
 
-For users who only need safe cognition, the built-in `ReadOnlyContextHost` is intentionally smaller: current context only, no history ownership, no scheduler, no notifications and no write/action path.
+For users who only need safe cognition, the built-in `ReadOnlyContextHost` is intentionally smaller: current context only, no history ownership, no scheduler, no notifications and no write/action path. Runtime use of it must be selected explicitly.
 
 ## Failure semantics
 
@@ -113,8 +152,9 @@ Brain fails closed if an adapter:
 - duplicates JSON object keys;
 - returns the wrong protocol/request ID;
 - returns an invalid result shape;
-- uses an operation it did not advertise.
+- uses an operation it did not advertise;
+- is selected as a runtime host but does not advertise the complete required read surface.
 
-Do not create fallback code that bypasses these errors by directly mutating Brain state.
+Do not create fallback code that bypasses these errors by directly mutating Brain state or silently choosing another host.
 
 See [`../protocol/ADAPTER-BRIDGE.md`](../protocol/ADAPTER-BRIDGE.md) for the normative transport contract.

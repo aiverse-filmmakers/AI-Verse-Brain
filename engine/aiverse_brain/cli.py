@@ -14,9 +14,9 @@ from .controller import BrainController
 from .direction_ownership import DirectionOwnershipService
 from .doctor import run_doctor
 from .errors import BrainError
+from .host_selection import HostSelection, select_host
 from .installation import initialize, plan_init, read_installation_marker
 from .integration import plan_integration
-from .local_host import ReadOnlyContextHost
 from .migration import apply_migration, plan_migration
 from .models import Scope
 from .onboarding import OnboardingService
@@ -57,9 +57,16 @@ def build_parser() -> argparse.ArgumentParser:
     vendor_doc.add_argument("--timeout", type=float, default=120.0)
     vendor_doc.add_argument("--env-name", action="append", default=[], help="explicit credential/environment variable name to forward")
 
-    tick = sub.add_parser("run-tick", help="run one bounded Brain cognition tick with a read-only context host")
+    tick = sub.add_parser("run-tick", help="run one bounded Brain cognition tick with an explicitly selected host")
     tick.add_argument("root", nargs="?", default=".")
     tick.add_argument("--vendor", choices=["claude", "codex", "hermes"], required=True)
+    host_mode = tick.add_mutually_exclusive_group(required=True)
+    host_mode.add_argument("--host-adapter", help="JSON bridge config for the real host/runtime adapter")
+    host_mode.add_argument(
+        "--read-only-context",
+        action="store_true",
+        help="explicitly use the limited built-in current-context-only host",
+    )
     tick.add_argument("--scope", default="operator")
     tick.add_argument(
         "--trigger",
@@ -72,7 +79,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     tick.add_argument("--idempotency-key")
     tick.add_argument("--session-id")
-    tick.add_argument("--context-file")
+    tick.add_argument("--context-file", help="optional context file; valid only with --read-only-context")
     tick.add_argument("--model")
     tick.add_argument("--provider")
     tick.add_argument("--binary")
@@ -98,10 +105,17 @@ def build_parser() -> argparse.ArgumentParser:
     hooks = sub.add_parser("cadence-hooks", help="emit portable scheduler argv hooks; Brain does not install a scheduler")
     hooks.add_argument("root", nargs="?", default=".")
     hooks.add_argument("--vendor", choices=["claude", "codex", "hermes"], required=True)
+    hook_host_mode = hooks.add_mutually_exclusive_group(required=True)
+    hook_host_mode.add_argument("--host-adapter", help="JSON bridge config for the real host/runtime adapter")
+    hook_host_mode.add_argument(
+        "--read-only-context",
+        action="store_true",
+        help="explicitly schedule ticks with the limited built-in current-context-only host",
+    )
     hooks.add_argument("--scope", default="operator")
     hooks.add_argument("--proactivity", type=int, choices=range(0, 5), default=None)
     hooks.add_argument("--background-ticks-per-day", type=int, default=None)
-    hooks.add_argument("--context-file")
+    hooks.add_argument("--context-file", help="optional context file; valid only with --read-only-context")
     hooks.add_argument("--model")
     hooks.add_argument("--provider")
     return parser
@@ -111,11 +125,12 @@ def _print(data: object) -> None:
     print(json.dumps(data, indent=2, sort_keys=True))
 
 
-def _tick_summary(result) -> dict:
+def _tick_summary(result, host_selection: HostSelection) -> dict:
     return {
         "ok": result.ok,
         "trigger_type": result.trigger_type,
         "scope": result.scope,
+        "host": host_selection.to_dict(),
         "reasoner_calls": result.reasoner_calls,
         "applied_refs": [item.object_ref for item in result.applied],
         "surface_items": [
@@ -222,6 +237,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 _print({"ok": False, "error": "Brain is not initialized; run `ai-verse-brain init --apply` first"})
                 return 4
             scope = Scope(args.scope)
+            host_selection = select_host(
+                root,
+                host_adapter_config=args.host_adapter,
+                read_only_context=args.read_only_context,
+                context_file=args.context_file,
+            )
             reasoner, config = vendor_reasoner(
                 args.vendor,
                 model=args.model,
@@ -232,7 +253,6 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 cwd=root,
             )
             adapter_doctor(config)
-            host = ReadOnlyContextHost(root, context_file=args.context_file)
             trigger = Trigger(
                 trigger_type=args.trigger,
                 scope=scope,
@@ -240,11 +260,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             )
             result = BrainRuntime(root).run_tick(
                 trigger,
-                host=host,
+                host=host_selection.host,
                 reasoner=reasoner,
                 session_id=args.session_id,
             )
-            _print(_tick_summary(result))
+            _print(_tick_summary(result, host_selection))
             return 0 if result.ok else 5
 
         if args.command == "doctor":
@@ -287,6 +307,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                     background_ticks_per_day=args.background_ticks_per_day,
                     model=args.model,
                     provider=args.provider,
+                    host_adapter_config=args.host_adapter,
+                    read_only_context=args.read_only_context,
                     context_file=args.context_file,
                 )
             )

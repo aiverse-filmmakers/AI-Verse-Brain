@@ -23,6 +23,12 @@ from .direction_ownership import (
     read_registry as read_direction_ownership_registry,
 )
 from .doctor import run_doctor
+from .host_selection import (
+    HostSelection,
+    REQUIRED_HOST_READ_OPERATIONS,
+    select_host,
+    validate_host_selection_options,
+)
 from .installation import InitPlan, InitResult, initialize, plan_init, read_installation_marker
 from .integration import HostMode, inspect_host, native_path_contract, plan_integration
 from .local_host import ReadOnlyContextHost
@@ -46,6 +52,7 @@ __all__ = [
     "CognitionProposal", "CognitionPurpose", "CognitionRequest", "validate_proposal",
     "DirectionImportCandidate", "DirectionHandoverPlan", "DirectionHandoverResult",
     "DirectionOwnershipService", "direction_owner_for", "read_direction_ownership_registry",
+    "HostSelection", "REQUIRED_HOST_READ_OPERATIONS", "select_host", "validate_host_selection_options",
     "InitPlan", "InitResult", "initialize", "plan_init", "read_installation_marker",
     "HostMode", "inspect_host", "native_path_contract", "plan_integration", "run_doctor",
     "OnboardingPlan", "OnboardingResult", "OnboardingService",
