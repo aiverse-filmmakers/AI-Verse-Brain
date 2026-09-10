@@ -15,7 +15,7 @@ def snapshot(root: Path):
     return sorted(str(path.relative_to(root)) for path in root.rglob("*") if path.is_file())
 
 
-def make_native(root: Path, *, brain_slot=False):
+def make_native(root: Path, *, brain_slot=False, enabled=True):
     (root / "operator" / "context").mkdir(parents=True)
     (root / "operator" / "memory").mkdir(parents=True)
     (root / "operator" / "decisions").mkdir(parents=True)
@@ -25,7 +25,12 @@ def make_native(root: Path, *, brain_slot=False):
     (root / "knowledge").mkdir()
     text = 'schema_version: "2.0"\narchitecture: unified-workspace\n'
     if brain_slot:
-        text += 'extensions:\n  brain:\n    supported: true\n'
+        text += (
+            'extensions:\n'
+            '  brain:\n'
+            '    supported: true\n'
+            f'    enabled: {"true" if enabled else "false"}\n'
+        )
     (root / "AI-VERSE.yaml").write_text(text, encoding="utf-8")
 
 
@@ -94,13 +99,28 @@ class HostDetectionTests(unittest.TestCase):
             self.assertTrue(plan.blockers)
             self.assertEqual(before, after)
 
-    def test_brain_extension_slot_unblocks_plan_without_writing(self):
+    def test_disabled_brain_registration_is_blocker(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            make_native(root, brain_slot=True)
+            make_native(root, brain_slot=True, enabled=False)
+            report = inspect_host(temp)
+            plan = plan_integration(temp)
+            self.assertTrue(report.brain_extension_slot)
+            self.assertTrue(report.brain_supported)
+            self.assertFalse(report.brain_enabled)
+            self.assertFalse(report.brain_registration_valid)
+            self.assertFalse(plan.safe_to_apply)
+            self.assertTrue(any("enabled" in item for item in plan.blockers))
+
+    def test_brain_extension_registration_unblocks_plan_without_writing(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            make_native(root, brain_slot=True, enabled=True)
             before = snapshot(root)
+            report = inspect_host(temp)
             plan = plan_integration(temp)
             after = snapshot(root)
+            self.assertTrue(report.brain_registration_valid)
             self.assertTrue(plan.safe_to_apply)
             self.assertEqual(before, after)
 
