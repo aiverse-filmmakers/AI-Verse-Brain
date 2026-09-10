@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import re
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional
 
 from .authority import AuthorityTier
+from .direction_ownership import direction_owner_for, strategic_answers_present
 from .errors import ValidationError
 from .models import BrainObject
 
@@ -60,11 +61,15 @@ class OnboardingPlan:
     complete_enough_to_orient: bool
     questions: List[OnboardingQuestion] = field(default_factory=list)
     notes: List[str] = field(default_factory=list)
+    direction_owner: str = "brain"
+    strategic_write_enabled: bool = True
 
     def to_dict(self) -> Dict[str, Any]:
         return {
             "scope": self.scope,
             "complete_enough_to_orient": self.complete_enough_to_orient,
+            "direction_owner": self.direction_owner,
+            "strategic_write_enabled": self.strategic_write_enabled,
             "questions": [item.to_dict() for item in self.questions],
             "notes": list(self.notes),
         }
@@ -87,13 +92,18 @@ class OnboardingResult:
 
 
 class OnboardingService:
-    """Captures only Brain-owned intent/practice state from explicit user answers.
+    """Captures Brain-owned intent/practice state from explicit user answers.
 
-    Current state, profile facts, history, knowledge, connections, and capabilities remain host/OS-owned.
+    In native AI-Verse OS mode, strategic intent is writable here only after an explicit
+    durable handover makes Brain the direction owner for the scope. Current state, profile
+    facts, history, knowledge, connections, and capabilities remain host/OS-owned.
     """
 
     def __init__(self, controller: Any):
         self.controller = controller
+
+    def _owner(self, scope: str) -> str:
+        return direction_owner_for(self.controller, scope)
 
     def _intents(self, scope: str, subtype: Optional[str] = None) -> List[BrainObject]:
         items = self.controller.store.list("intent", scope, {"CONFIRMED", "ACTIVE"})
@@ -105,54 +115,74 @@ class OnboardingService:
         return self.controller.store.list("practice", scope, {"CONFIRMED", "ACTIVE", "PAUSED"})
 
     def plan(self, scope: str = "operator") -> OnboardingPlan:
-        desired = self._intents(scope, "desired_state")
-        goals = self._intents(scope, "goal")
-        success = self._intents(scope, "success_definition")
-        boundaries = self._intents(scope, "boundary")
-        constraints = self._intents(scope, "constraint")
+        owner = self._owner(scope)
         practices = self._practices(scope)
-
         questions: List[OnboardingQuestion] = []
-        if not desired:
-            questions.append(OnboardingQuestion(
-                "desired_state",
-                "What meaningful future state do you want this Brain to help move toward?",
-                True,
-                "intent:desired_state",
-                "Direction requires an explicitly user-authorized destination; the Brain may not infer one into existence.",
-            ))
-        if not success:
-            questions.append(OnboardingQuestion(
-                "success_definition",
-                "How will you know meaningful progress or success has actually happened?",
-                True,
-                "intent:success_definition",
-                "Verification needs a user-owned definition of success rather than model self-grading.",
-            ))
-        if not goals:
-            questions.append(OnboardingQuestion(
-                "goals",
-                "What concrete outcomes matter most right now? Provide a list, or leave it empty for now.",
-                False,
-                "intent:goal",
-                "Goals connect long-horizon direction to initiatives and bounded objectives.",
-            ))
-        if not boundaries:
-            questions.append(OnboardingQuestion(
-                "boundaries",
-                "What should the Brain never optimize away, change silently, or cross?",
-                False,
-                "intent:boundary",
-                "User boundaries outrank agent strategy and self-improvement.",
-            ))
-        if not constraints:
-            questions.append(OnboardingQuestion(
-                "constraints",
-                "What real constraints should planning respect?",
-                False,
-                "intent:constraint",
-                "Constraints prevent attractive but unusable initiatives.",
-            ))
+
+        if owner == "brain":
+            desired = self._intents(scope, "desired_state")
+            goals = self._intents(scope, "goal")
+            success = self._intents(scope, "success_definition")
+            boundaries = self._intents(scope, "boundary")
+            constraints = self._intents(scope, "constraint")
+
+            if not desired:
+                questions.append(OnboardingQuestion(
+                    "desired_state",
+                    "What meaningful future state do you want this Brain to help move toward?",
+                    True,
+                    "intent:desired_state",
+                    "Direction requires an explicitly user-authorized destination; the Brain may not infer one into existence.",
+                ))
+            if not success:
+                questions.append(OnboardingQuestion(
+                    "success_definition",
+                    "How will you know meaningful progress or success has actually happened?",
+                    True,
+                    "intent:success_definition",
+                    "Verification needs a user-owned definition of success rather than model self-grading.",
+                ))
+            if not goals:
+                questions.append(OnboardingQuestion(
+                    "goals",
+                    "What concrete outcomes matter most right now? Provide a list, or leave it empty for now.",
+                    False,
+                    "intent:goal",
+                    "Goals connect long-horizon direction to initiatives and bounded objectives.",
+                ))
+            if not boundaries:
+                questions.append(OnboardingQuestion(
+                    "boundaries",
+                    "What should the Brain never optimize away, change silently, or cross?",
+                    False,
+                    "intent:boundary",
+                    "User boundaries outrank agent strategy and self-improvement.",
+                ))
+            if not constraints:
+                questions.append(OnboardingQuestion(
+                    "constraints",
+                    "What real constraints should planning respect?",
+                    False,
+                    "intent:constraint",
+                    "Constraints prevent attractive but unusable initiatives.",
+                ))
+            complete = bool(desired and success)
+            notes = [
+                "Brain owns strategic direction for this scope; only explicit answers become confirmed Brain intent.",
+                "Current-state facts remain in the host/OS canonical context and are not duplicated by onboarding.",
+                "Profile, memory, knowledge, scheduler, connections, and capabilities remain outside Brain ownership.",
+            ]
+        else:
+            # OS is the canonical strategy owner. Brain onboarding must not create a parallel
+            # desired-state/goal/boundary/constraint store. Item 15 can make host-owned
+            # direction available to reasoning without changing this ownership boundary.
+            complete = True
+            notes = [
+                "AI-Verse OS currently owns strategic direction for this scope.",
+                "Brain onboarding will not ask for or persist desired state, success definitions, goals, boundaries, or constraints until explicit handover.",
+                "Use `ai-verse-brain direction-owner <root> --scope <scope> --handover-to-brain` to inspect the handover plan, then apply it explicitly if desired.",
+            ]
+
         if not practices:
             questions.append(OnboardingQuestion(
                 "practices",
@@ -162,16 +192,13 @@ class OnboardingService:
                 "Practices represent ongoing desired conditions rather than terminal goals.",
             ))
 
-        complete = bool(desired and success)
         return OnboardingPlan(
-            scope,
-            complete,
-            questions,
-            notes=[
-                "Only explicit answers become confirmed Brain intent.",
-                "Current-state facts remain in the host/OS canonical context and are not duplicated by onboarding.",
-                "Profile, memory, knowledge, scheduler, connections, and capabilities remain outside Brain ownership.",
-            ],
+            scope=scope,
+            complete_enough_to_orient=complete,
+            questions=questions,
+            notes=notes,
+            direction_owner=owner,
+            strategic_write_enabled=(owner == "brain"),
         )
 
     def _find_intent(self, scope: str, subtype: str, statement: str) -> Optional[BrainObject]:
@@ -223,6 +250,13 @@ class OnboardingService:
         if unknown:
             raise ValidationError("unknown onboarding answer keys: " + ", ".join(unknown))
 
+        owner = self._owner(scope)
+        if owner != "brain" and strategic_answers_present(answers):
+            raise ValidationError(
+                f"strategic direction for {scope} is owned by AI-Verse OS; "
+                "Brain onboarding cannot create a second strategic store before explicit handover"
+            )
+
         desired_value = answers.get("desired_state")
         success_value = answers.get("success_definition")
         goals = _string_list(answers.get("goals"), "goals")
@@ -230,14 +264,8 @@ class OnboardingService:
         constraints = _string_list(answers.get("constraints"), "constraints")
         practices = _string_list(answers.get("practices"), "practices")
 
-        if desired_value is not None:
-            desired = _require_text(desired_value, "desired_state")
-        else:
-            desired = None
-        if success_value is not None:
-            success = _require_text(success_value, "success_definition")
-        else:
-            success = None
+        desired = _require_text(desired_value, "desired_state") if desired_value is not None else None
+        success = _require_text(success_value, "success_definition") if success_value is not None else None
 
         before = self.plan(scope)
         missing_required = {item.key for item in before.questions if item.required}
