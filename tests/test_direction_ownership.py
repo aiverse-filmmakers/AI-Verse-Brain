@@ -119,6 +119,100 @@ class DirectionOwnershipAcceptanceTests(unittest.TestCase):
             )
             self.assertEqual(len(applied.created_refs), 2)
 
+    def test_explicit_handback_exports_brain_direction_before_returning_os_ownership(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "host"
+            root.mkdir()
+            make_native(root)
+            current = root / "operator" / "context" / "CURRENT.md"
+            current.write_text(
+                "# Current Operator Context\n\n"
+                "## Current priorities\n\n- Initial OS direction\n\n"
+                "## Current state\n\nRelease hardening is active.\n",
+                encoding="utf-8",
+            )
+
+            controller = BrainController(str(root))
+            ownership = DirectionOwnershipService(controller)
+            ownership.handover("operator", confirm_import=True)
+            OnboardingService(controller).apply(
+                {
+                    "desired_state": "A shipped dependable beta",
+                    "success_definition": "Real members can install and use it safely",
+                    "goals": ["Finish release hardening"],
+                    "boundaries": ["Never silently reactivate stale strategy"],
+                    "constraints": ["Preserve canonical user state"],
+                },
+                "operator",
+            )
+
+            plan = ownership.plan_return_to_os("operator")
+            self.assertTrue(plan.can_handover)
+            self.assertEqual(plan.current_owner, "brain")
+            self.assertEqual(plan.target_path, "operator/context/CURRENT.md")
+            self.assertGreaterEqual(len(plan.export_items), 5)
+            with self.assertRaises(ValidationError):
+                ownership.handback_to_os("operator", confirm_export=False)
+
+            result = ownership.handback_to_os("operator", confirm_export=True)
+            self.assertEqual(result.owner, "os")
+            self.assertEqual(controller.direction_owner("operator"), "os")
+
+            text = current.read_text(encoding="utf-8")
+            self.assertIn("## Current priorities", text)
+            self.assertIn("- Desired state: A shipped dependable beta", text)
+            self.assertIn("- Goal: Finish release hardening", text)
+            self.assertIn("## Current state\n\nRelease hardening is active.", text)
+
+            registry = read_registry(root)
+            record = registry["scopes"]["operator"]
+            self.assertEqual(record["owner"], "os")
+            self.assertEqual(record["state"], "active")
+            self.assertTrue(record["export_confirmed"])
+            self.assertTrue(record["brain_export_path"].startswith(".aiverse/direction/exports/"))
+            self.assertTrue((root / record["brain_export_path"]).is_file())
+            self.assertEqual(record["os_source_path"], "operator/context/CURRENT.md")
+
+            intents = controller.store.list("intent", "operator", {"CONFIRMED", "ACTIVE"})
+            self.assertGreaterEqual(len(intents), 5)
+
+    def test_interrupted_handback_never_flips_owner_before_os_strategy_exists(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "host"
+            root.mkdir()
+            make_native(root)
+            current = root / "operator" / "context" / "CURRENT.md"
+            current.write_text(
+                "# Current Operator Context\n\n"
+                "## Current priorities\n\n- Keep release safe\n\n"
+                "## Current state\n\nOperational.\n",
+                encoding="utf-8",
+            )
+            controller = BrainController(str(root))
+            service = DirectionOwnershipService(controller)
+            service.handover("operator", confirm_import=True)
+
+            original_write = direction_ownership._atomic_json_write
+
+            def fail_owner_flip(root_arg, target, data):
+                record = data.get("scopes", {}).get("operator", {})
+                if record.get("owner") == "os":
+                    raise RuntimeError("simulated interruption before owner flip")
+                return original_write(root_arg, target, data)
+
+            with patch.object(direction_ownership, "_atomic_json_write", side_effect=fail_owner_flip):
+                with self.assertRaises(RuntimeError):
+                    service.handback_to_os("operator", confirm_export=True)
+
+            self.assertEqual(BrainController(str(root)).direction_owner("operator"), "brain")
+            self.assertIn("- Goal: Keep release safe", current.read_text(encoding="utf-8"))
+
+            resumed = DirectionOwnershipService(BrainController(str(root))).handback_to_os(
+                "operator", confirm_export=True
+            )
+            self.assertEqual(resumed.owner, "os")
+            self.assertEqual(BrainController(str(root)).direction_owner("operator"), "os")
+
     def test_interrupted_confirmation_never_reactivates_os_and_resumes(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp) / "host"

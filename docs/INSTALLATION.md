@@ -56,18 +56,33 @@ workspaces/<id>/brain/
 runtime/ai-verse-brain/
 ```
 
-The installer does not edit `AI-VERSE.yaml`. Native mode therefore requires the host to already expose an explicit write-ready Brain registration:
+The installer does not edit tracked `AI-VERSE.yaml`. In native mode, `init --apply` idempotently attaches Brain through:
 
-```yaml
-extensions:
-  brain:
-    supported: true
-    enabled: true
+```text
+.aiverse/extensions/registry.json
+extensions["ai-verse-brain"]
 ```
 
-A missing, disabled, unsupported or ambiguous registration is a blocker. An incompatible host is also a blocker, never a reason to silently create a parallel store.
+The local entry must remain supported, installed and enabled for normal Brain writes. A disabled, unsupported, malformed or incompatible attachment fails closed. Initialization is the only bootstrap exception to the installation-marker requirement: on a clean compatible OS it first creates the local attachment, then Brain-owned state and `operator/brain/installation.json`.
 
-Initialization is the only native bootstrap exception to the installation-marker requirement: it may create Brain-owned state and `operator/brain/installation.json` only after the compatible, supported and enabled host registration has been validated. After that, public native SDK/CLI/runtime write paths require the valid installation marker as well as the live registration. Disabling the registration therefore disables new Brain writes without deleting existing state.
+You can also manage attachment explicitly:
+
+```bash
+ai-verse-brain attach /path/to/AI-Verse-OS --apply
+ai-verse-brain disable /path/to/AI-Verse-OS --apply
+ai-verse-brain detach /path/to/AI-Verse-OS --apply
+```
+
+Disable/detach preserve Brain state and are refused while Brain owns strategic direction for any scope.
+
+Before disabling or detaching a Brain-owned scope, return direction explicitly:
+
+```bash
+ai-verse-brain direction-owner /path/to/AI-Verse-OS --scope operator --handover-to-os
+ai-verse-brain direction-owner /path/to/AI-Verse-OS --scope operator --handover-to-os --apply --confirm-export
+```
+
+The dry run lists the Brain strategic items and OS target path. Apply writes the bounded OS strategic section and a provenance export before changing the owner marker. A crash before the marker flip leaves Brain as owner, so OS never silently resumes stale strategy.
 
 ## 4. Onboard explicit intent
 

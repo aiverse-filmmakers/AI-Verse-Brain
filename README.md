@@ -86,7 +86,36 @@ workspaces/<id>/brain/
 runtime/ai-verse-brain/
 ```
 
-If an AI-Verse host is incompatible or lacks the native Brain extension contract, initialization reports a blocker instead of editing host-owned canonical OS configuration or silently creating a competing standalone store.
+On a compatible AI-Verse OS v2 host, `init --apply` first attaches Brain through the local `.aiverse/extensions/registry.json` contract and then creates Brain-owned state. It does not edit tracked `AI-VERSE.yaml`, `AGENTS.md`, or capability registries. An incompatible host still fails closed instead of creating a competing standalone store.
+
+## Native attachment lifecycle
+
+On a compatible AI-Verse OS, attachment is local and dry-run-first:
+
+```bash
+ai-verse-brain attach /path/to/AI-Verse-OS
+ai-verse-brain attach /path/to/AI-Verse-OS --apply
+ai-verse-brain disable /path/to/AI-Verse-OS --apply
+ai-verse-brain detach /path/to/AI-Verse-OS --apply
+```
+
+Disable/detach preserve canonical Brain state. They are blocked while Brain owns strategic direction for any scope, so Brain cannot be removed in a way that silently reactivates stale OS strategy.
+
+Return strategic ownership deliberately before removing Brain availability:
+
+```bash
+ai-verse-brain direction-owner /path/to/AI-Verse-OS \
+  --scope operator \
+  --handover-to-os
+
+ai-verse-brain direction-owner /path/to/AI-Verse-OS \
+  --scope operator \
+  --handover-to-os \
+  --apply \
+  --confirm-export
+```
+
+The handback first exports the active Brain strategic intent, updates only the OS scope's standard strategic section while preserving operational/current-state sections, and then atomically flips the durable owner to `os`. Brain objects remain intact as provenance.
 
 ## Onboard explicit intent
 
@@ -159,13 +188,11 @@ ai-verse-brain run-tick . --vendor codex --read-only-context --context-file ./CU
 
 In native AI-Verse mode the read-only host can discover the canonical `operator/context/CURRENT.md` or scoped workspace `context/CURRENT.md`. It does not copy that content into a competing canonical store merely because the reasoner saw it.
 
-For full AI-Verse OS + Memory + Skills composition, use the supported OS host adapter shipped by AI-Verse OS. Generate a Brain bridge config from the OS checkout, then pass it explicitly:
+For native AI-Verse composition, use the generic OS host adapter. The generated config is stable even if optional Memory, Skills or Data are attached later:
 
 ```bash
 python <AI-Verse-OS>/scripts/ai_verse_host_adapter.py \
   --root <AI-Verse-OS> \
-  --skills-root <AI-Verse-Skills-runtime-root> \
-  --skills-entrypoint <AI-Verse-Skills>/installer/aiverse_skills.py \
   --write-config <AI-Verse-OS>/.aiverse/brain-host.json
 
 ai-verse-brain run-tick <AI-Verse-OS> \
@@ -174,7 +201,7 @@ ai-verse-brain run-tick <AI-Verse-OS> \
   --trigger explicit
 ```
 
-The OS adapter remains the host boundary. It delegates current context to OS, history to installed Memory, capability resolution and permission to OS, and immutable generation pinning plus execution-receipt validation to Skills. Brain still owns cognition, policy intersection, approval checks, and objective verification.
+The OS adapter remains the host boundary. OS-only operation is valid; installed Memory adds history, the external immutable Skills provider adds capabilities, configured Connections add bounded metadata, and attached Data can expose read-only structured queries. Brain still owns cognition, policy intersection, approval checks, and objective verification.
 
 The runtime pipeline remains:
 

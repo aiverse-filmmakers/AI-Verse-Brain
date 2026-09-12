@@ -140,14 +140,18 @@ def run_doctor(root: str) -> DoctorReport:
         report.add("parallel-store", "PASS", "no standalone Brain store in native mode")
 
     if not host.brain_extension_slot:
-        report.add("brain-extension-slot", "WARN", "extensions.brain is absent; native Brain writes are unavailable")
+        report.add(
+            "brain-attachment",
+            "WARN",
+            "Brain is not attached in .aiverse/extensions/registry.json; native Brain writes are unavailable",
+        )
     elif host.brain_registration_valid:
-        report.add("brain-extension-slot", "PASS", "extensions.brain is explicitly supported and enabled")
+        report.add("brain-attachment", "PASS", "local Brain attachment is supported, installed and enabled")
     else:
         report.add(
-            "brain-extension-slot",
+            "brain-attachment",
             "FAIL",
-            f"extensions.brain registration is not write-ready (supported={host.brain_supported!r}, enabled={host.brain_enabled!r})",
+            f"local Brain attachment is not write-ready (supported={host.brain_supported!r}, enabled={host.brain_enabled!r})",
         )
 
     report.add("memory", "INFO", "AI-Verse Memory detected" if host.memory_detected else "AI-Verse Memory not detected; it remains optional")

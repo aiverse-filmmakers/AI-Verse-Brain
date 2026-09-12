@@ -99,6 +99,7 @@ A host bridge may advertise any subset of:
 - `retrieve_history`
 - `list_capabilities`
 - `list_connections`
+- `query_data` (optional read-only structured-data surface)
 - `authorize_action`
 - `request_action`
 - `request_evaluation`
@@ -110,6 +111,14 @@ A host bridge may advertise any subset of:
 An advertised operation means only that the adapter can perform it. It does **not** mean Brain policy authorizes it.
 
 An execution-capable host must provide `authorize_action` for any action Brain may dispatch. Brain intersects that restrictive host decision with its own effective policy before `request_action` can be reached. The host permission decision is not a user approval grant.
+
+### `query_data`
+
+A host may advertise `query_data` when it can provide bounded structured current-state reads. Brain treats the result as evidence/data only; it is never copied into canonical Brain state merely because it was retrieved.
+
+The AI-Verse OS host accepts only its read-only Data operation allowlist and routes the request through the OS Data host/permission boundary. It never opens the workspace SQLite database directly from Brain.
+
+Hosts that do not advertise `query_data` remain fully compatible with bridge protocol 1.0.
 
 ### `authorize_action`
 

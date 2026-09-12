@@ -6,6 +6,7 @@ from pathlib import Path
 from aiverse_brain.cadence_plan import plan_cadence
 from aiverse_brain.doctor import run_doctor
 from aiverse_brain.errors import ScopeError
+from aiverse_brain.extension_registry import attach_brain, set_brain_enabled
 from aiverse_brain.integration import HostMode, inspect_host, native_path_contract, plan_integration
 from aiverse_brain.policy import BrainPolicy, ProactivityLevel
 from aiverse_brain.storage import StorageLayout
@@ -24,14 +25,11 @@ def make_native(root: Path, *, brain_slot=False, enabled=True):
     (root / "workspaces" / "alpha" / "decisions").mkdir(parents=True)
     (root / "knowledge").mkdir()
     text = 'schema_version: "2.0"\narchitecture: unified-workspace\n'
-    if brain_slot:
-        text += (
-            'extensions:\n'
-            '  brain:\n'
-            '    supported: true\n'
-            f'    enabled: {"true" if enabled else "false"}\n'
-        )
     (root / "AI-VERSE.yaml").write_text(text, encoding="utf-8")
+    if brain_slot:
+        attach_brain(str(root))
+        if not enabled:
+            set_brain_enabled(str(root), False)
 
 
 class HostDetectionTests(unittest.TestCase):
@@ -133,7 +131,7 @@ class DoctorTests(unittest.TestCase):
             report = run_doctor(temp)
             self.assertTrue(report.ok)
             severities = {item.name: item.severity for item in report.checks}
-            self.assertEqual(severities["brain-extension-slot"], "WARN")
+            self.assertEqual(severities["brain-attachment"], "WARN")
 
     def test_doctor_detects_cross_scope_state(self):
         with tempfile.TemporaryDirectory() as temp:

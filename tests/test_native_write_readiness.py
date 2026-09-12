@@ -9,22 +9,32 @@ from aiverse_brain.cli import main as cli_main
 from aiverse_brain.controller import BrainController
 from aiverse_brain.direction_ownership import DirectionOwnershipService
 from aiverse_brain.errors import ValidationError
+from aiverse_brain.extension_registry import (
+    attach_brain,
+    brain_attachment,
+    set_brain_enabled,
+)
 from aiverse_brain.installation import initialize, plan_init
 from aiverse_brain.integration import plan_integration
 from aiverse_brain.models import Scope
 
 
-def make_native(root: Path, *, supported=None, enabled=None, schema="2.0", architecture="unified-workspace"):
+def make_native(root: Path, *, attach=False, supported=True, enabled=True, schema="2.0", architecture="unified-workspace"):
     (root / "operator").mkdir(parents=True, exist_ok=True)
     (root / "workspaces").mkdir(parents=True, exist_ok=True)
-    lines = [f'schema_version: "{schema}"', f"architecture: {architecture}"]
-    if supported is not None or enabled is not None:
-        lines.extend(["extensions:", "  brain:"])
-        if supported is not None:
-            lines.append(f"    supported: {'true' if supported else 'false'}")
-        if enabled is not None:
-            lines.append(f"    enabled: {'true' if enabled else 'false'}")
-    (root / "AI-VERSE.yaml").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    (root / "AI-VERSE.yaml").write_text(
+        f'schema_version: "{schema}"\narchitecture: {architecture}\n',
+        encoding="utf-8",
+    )
+    if attach and schema.startswith("2.") and architecture == "unified-workspace":
+        attach_brain(str(root))
+        if not enabled:
+            set_brain_enabled(str(root), False)
+        if not supported:
+            registry = root / ".aiverse" / "extensions" / "registry.json"
+            data = json.loads(registry.read_text(encoding="utf-8"))
+            data["extensions"]["ai-verse-brain"]["supported"] = False
+            registry.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
 def tree_snapshot(root: Path):
@@ -65,14 +75,34 @@ class NativeWriteReadinessAcceptanceTests(unittest.TestCase):
             confirmed_goal(controller)
         self.assertEqual(tree_snapshot(root), before)
         self.assertFalse((root / ".ai-verse-brain").exists())
-        self.assertFalse((root / "operator" / "brain").exists())
-        self.assertFalse((root / "runtime" / "ai-verse-brain").exists())
 
-    def test_missing_registration_blocks_sdk_and_bootstrap_before_writes(self):
+    def test_clean_stock_os_plan_is_safe_and_initialize_auto_attaches_without_tracked_edit(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp) / "host"
             root.mkdir()
             make_native(root)
+            manifest = (root / "AI-VERSE.yaml").read_bytes()
+
+            plan = plan_init(str(root))
+            self.assertTrue(plan.safe_to_apply)
+            self.assertTrue(any("#ai-verse-brain" in item for item in plan.creates))
+            result = initialize(str(root))
+
+            self.assertTrue(result.created)
+            attachment = brain_attachment(str(root))
+            self.assertIsNotNone(attachment)
+            self.assertTrue(attachment["supported"])
+            self.assertTrue(attachment["installed"])
+            self.assertTrue(attachment["enabled"])
+            self.assertEqual((root / "AI-VERSE.yaml").read_bytes(), manifest)
+            self.assertTrue((root / "operator" / "brain" / "installation.json").is_file())
+            self.assertFalse((root / ".ai-verse-brain").exists())
+
+    def test_disabled_attachment_blocks_sdk_and_bootstrap_before_brain_state_writes(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "host"
+            root.mkdir()
+            make_native(root, attach=True, enabled=False)
             before = tree_snapshot(root)
             self.assertFalse(plan_integration(str(root)).safe_to_apply)
             self.assertFalse(plan_init(str(root)).safe_to_apply)
@@ -81,11 +111,11 @@ class NativeWriteReadinessAcceptanceTests(unittest.TestCase):
             self.assertEqual(tree_snapshot(root), before)
             self.assert_sdk_write_blocked_without_changes(root)
 
-    def test_disabled_registration_blocks_sdk_and_bootstrap_before_writes(self):
+    def test_unsupported_attachment_blocks_sdk_and_bootstrap(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp) / "host"
             root.mkdir()
-            make_native(root, supported=True, enabled=False)
+            make_native(root, attach=True, supported=False)
             before = tree_snapshot(root)
             self.assertFalse(plan_integration(str(root)).safe_to_apply)
             self.assertFalse(plan_init(str(root)).safe_to_apply)
@@ -94,24 +124,11 @@ class NativeWriteReadinessAcceptanceTests(unittest.TestCase):
             self.assertEqual(tree_snapshot(root), before)
             self.assert_sdk_write_blocked_without_changes(root)
 
-    def test_unsupported_registration_blocks_sdk_and_bootstrap_before_writes(self):
+    def test_enabled_attachment_without_initialization_blocks_normal_sdk_and_runtime_writes(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp) / "host"
             root.mkdir()
-            make_native(root, supported=False, enabled=True)
-            before = tree_snapshot(root)
-            self.assertFalse(plan_integration(str(root)).safe_to_apply)
-            self.assertFalse(plan_init(str(root)).safe_to_apply)
-            with self.assertRaises(ValidationError):
-                initialize(str(root))
-            self.assertEqual(tree_snapshot(root), before)
-            self.assert_sdk_write_blocked_without_changes(root)
-
-    def test_enabled_registration_without_initialization_blocks_normal_sdk_and_runtime_writes(self):
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp) / "host"
-            root.mkdir()
-            make_native(root, supported=True, enabled=True)
+            make_native(root, attach=True)
             self.assertTrue(plan_integration(str(root)).safe_to_apply)
             self.assertTrue(plan_init(str(root)).safe_to_apply)
             before = tree_snapshot(root)
@@ -128,30 +145,25 @@ class NativeWriteReadinessAcceptanceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp) / "host"
             root.mkdir()
-            make_native(root, supported=True, enabled=True)
+            make_native(root)
             result = initialize(str(root))
             self.assertTrue(result.created)
             self.assertTrue((root / "operator" / "brain" / "installation.json").is_file())
-            # Installation alone does not transfer strategy ownership; explicitly hand it over first.
             handover_operator_direction(root)
             saved = confirmed_goal(BrainController(str(root)))
             self.assertEqual(saved.status, "CONFIRMED")
             self.assertTrue((root / "operator" / "brain" / "intent" / f"{saved.id}.json").is_file())
 
-    def test_disabling_registration_after_init_blocks_sdk_runtime_and_cli_writes(self):
+    def test_disabling_local_attachment_after_init_blocks_sdk_runtime_and_cli_writes(self):
         with tempfile.TemporaryDirectory() as temp:
             base = Path(temp)
             root = base / "host"
             root.mkdir()
-            make_native(root, supported=True, enabled=True)
+            make_native(root)
             initialize(str(root))
             handover_operator_direction(root)
             first = confirmed_goal(BrainController(str(root)), "first goal")
-            manifest = root / "AI-VERSE.yaml"
-            manifest.write_text(
-                'schema_version: "2.0"\narchitecture: unified-workspace\nextensions:\n  brain:\n    supported: true\n    enabled: false\n',
-                encoding="utf-8",
-            )
+            set_brain_enabled(str(root), False)
             before = tree_snapshot(root)
 
             controller = BrainController(str(root))
@@ -178,11 +190,57 @@ class NativeWriteReadinessAcceptanceTests(unittest.TestCase):
             self.assertEqual(tree_snapshot(root), before)
             self.assertTrue((root / "operator" / "brain" / "intent" / f"{first.id}.json").is_file())
 
+    def test_detach_is_blocked_while_brain_owns_direction(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "host"
+            root.mkdir()
+            make_native(root)
+            initialize(str(root))
+            handover_operator_direction(root)
+            before = tree_snapshot(root)
+
+            rc = cli_main(["detach", str(root), "--apply"])
+            self.assertEqual(rc, 2)
+            self.assertEqual(tree_snapshot(root), before)
+            self.assertIsNotNone(brain_attachment(str(root)))
+
+    def test_explicit_handback_allows_safe_detach_without_deleting_brain_state(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "host"
+            root.mkdir()
+            make_native(root)
+            initialize(str(root))
+            handover_operator_direction(root)
+            saved = confirmed_goal(BrainController(str(root)), "safe detach after handback")
+            brain_file = root / "operator" / "brain" / "intent" / f"{saved.id}.json"
+            self.assertTrue(brain_file.is_file())
+
+            rc = cli_main([
+                "direction-owner",
+                str(root),
+                "--scope",
+                "operator",
+                "--handover-to-os",
+                "--apply",
+                "--confirm-export",
+            ])
+            self.assertEqual(rc, 0)
+            self.assertEqual(BrainController(str(root)).direction_owner("operator"), "os")
+
+            rc = cli_main(["detach", str(root), "--apply"])
+            self.assertEqual(rc, 0)
+            self.assertIsNone(brain_attachment(str(root)))
+            self.assertTrue(brain_file.is_file())
+            self.assertIn(
+                "safe detach after handback",
+                (root / "operator" / "context" / "CURRENT.md").read_text(encoding="utf-8"),
+            )
+
     def test_incompatible_ai_verse_host_never_gets_parallel_or_native_brain_state(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp) / "host"
             root.mkdir()
-            make_native(root, supported=True, enabled=True, schema="3.0")
+            make_native(root, schema="3.0")
             before = tree_snapshot(root)
             self.assertFalse(plan_integration(str(root)).safe_to_apply)
             self.assertFalse(plan_init(str(root)).safe_to_apply)

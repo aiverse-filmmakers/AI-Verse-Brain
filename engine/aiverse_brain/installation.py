@@ -10,6 +10,7 @@ from uuid import uuid4
 
 from ._version import INSTALLATION_SCHEMA_VERSION, STATE_SCHEMA_VERSION, __version__
 from .errors import ValidationError
+from .extension_registry import attach_brain
 from .integration import HostMode, inspect_host, native_registration_blockers
 from .models import utc_now
 
@@ -160,11 +161,21 @@ def plan_init(root: str) -> InitPlan:
     state, runtime = _mode_paths(base, report.mode)
     blockers: List[str] = []
     warnings = list(report.warnings)
+    creates: List[str] = []
 
     if report.mode == HostMode.AI_VERSE_OS_V2:
         if (base / ".ai-verse-brain").exists():
             blockers.append("parallel standalone .ai-verse-brain store exists inside native AI-Verse host")
-        blockers.extend(native_registration_blockers(report))
+        registration_blockers = native_registration_blockers(report)
+        invalid_attachment = any(
+            warning.startswith("local Brain attachment is invalid:")
+            for warning in report.warnings
+        )
+        if report.brain_extension_slot or invalid_attachment:
+            blockers.extend(registration_blockers)
+        else:
+            creates.append(str(base / ".aiverse" / "extensions" / "registry.json") + "#ai-verse-brain")
+            warnings.append("Brain will attach locally before native state initialization")
 
     marker = state / "installation.json"
     already_initialized = False
@@ -182,7 +193,6 @@ def plan_init(root: str) -> InitPlan:
         except Exception as exc:
             blockers.append(str(exc))
 
-    creates: List[str] = []
     if not state.exists():
         creates.append(str(state))
     if not runtime.exists():
@@ -224,6 +234,12 @@ def initialize(root: str) -> InitResult:
         raise ValidationError("initialization plan has no safe state/runtime path")
 
     if plan.mode == HostMode.AI_VERSE_OS_V2:
+        report = inspect_host(str(Path(root).resolve()))
+        if not report.brain_extension_slot:
+            attach_brain(root)
+            plan = plan_init(root)
+            if not plan.safe_to_apply:
+                raise ValidationError("Brain initialization blocked after attachment: " + "; ".join(plan.blockers))
         from .write_gate import require_write_ready
         require_write_ready(root, allow_uninitialized_bootstrap=True)
 
