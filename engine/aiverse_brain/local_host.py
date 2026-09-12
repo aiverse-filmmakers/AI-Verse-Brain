@@ -158,6 +158,9 @@ class ReadOnlyContextHost:
         Scope(scope)
         return []
 
+    def query_data(self, request: Dict[str, Any]) -> Dict[str, Any]:
+        raise PermissionDenied("ReadOnlyContextHost does not expose structured Data")
+
     def request_action(self, request: Dict[str, Any]) -> Dict[str, Any]:
         raise PermissionDenied("ReadOnlyContextHost cannot execute actions")
 
