@@ -8,7 +8,7 @@ from uuid import uuid4
 
 from .errors import ScopeError, ValidationError
 
-_SCOPE_RE = re.compile(r"^(operator|workspace:[a-z0-9][a-z0-9._-]{0,127})$")
+_SCOPE_RE = re.compile(r"^(operator|workspace:[a-z0-9][a-z0-9-]{0,127})$")
 _KINDS = {
     "intent", "practice", "gap", "opportunity", "initiative", "objective",
     "model_belief", "evaluation", "learning", "strategy_rule", "policy",
