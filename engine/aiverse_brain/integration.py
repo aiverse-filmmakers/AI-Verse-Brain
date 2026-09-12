@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
+import json
 from pathlib import Path
 import re
 from typing import Dict, List, Optional
 
-from .errors import ScopeError
+from .errors import ScopeError, ValidationError
+from .extension_registry import brain_attachment
 from .models import Scope
 
 
@@ -89,89 +91,32 @@ def _extract_scalar(text: str, key: str) -> Optional[str]:
     return match.group(1) if match else None
 
 
-def _indent(line: str) -> int:
-    return len(line) - len(line.lstrip(" "))
-
-
-def _extension_settings(text: str, name: str) -> Optional[Dict[str, str]]:
-    """Return direct scalar settings for one top-level extensions entry.
-
-    This intentionally supports only the small host contract Brain needs rather
-    than acting as a general YAML parser. Ambiguous/duplicate registrations are
-    rejected by returning an invalid sentinel mapping.
-    """
-    lines = text.splitlines()
-    extensions_indent: Optional[int] = None
-    entry_indent: Optional[int] = None
-    found = 0
-    settings: Dict[str, str] = {}
-
-    for line in lines:
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-        indent = _indent(line)
-        if extensions_indent is None:
-            if stripped == "extensions:":
-                extensions_indent = indent
-            continue
-
-        if entry_indent is None:
-            if indent <= extensions_indent:
-                if stripped == "extensions:":
-                    continue
-                extensions_indent = None
-                continue
-            if re.match(rf"^{re.escape(name)}:\s*(?:#.*)?$", stripped):
-                found += 1
-                entry_indent = indent
-            continue
-
-        if indent <= entry_indent:
-            if re.match(rf"^{re.escape(name)}:\s*(?:#.*)?$", stripped) and indent == entry_indent:
-                found += 1
-            break
-        if ":" not in stripped:
-            continue
-        key, raw = stripped.split(":", 1)
-        value = raw.split("#", 1)[0].strip().strip("\"'")
-        if key in settings:
-            return {"__invalid__": "duplicate-key"}
-        settings[key] = value
-
-    if found == 0:
-        return None
-    if found != 1:
-        return {"__invalid__": "duplicate-registration"}
-    return settings
-
-
-def _contract_bool(settings: Optional[Dict[str, str]], key: str) -> Optional[bool]:
-    if not settings or "__invalid__" in settings or key not in settings:
-        return None
-    value = settings[key].strip().lower()
-    if value == "true":
-        return True
-    if value == "false":
-        return False
-    return None
+def _legacy_brain_manifest_registration(text: str) -> bool:
+    """Detect the obsolete tracked AI-VERSE.yaml Brain install slot."""
+    return bool(re.search(r"(?ms)^extensions:\s*$.*?^\s{2}brain:\s*$", text))
 
 
 def _memory_detected(root: Path) -> bool:
+    registry = root / ".aiverse" / "extensions" / "registry.json"
+    if registry.is_file() and not registry.is_symlink():
+        try:
+            data = json.loads(registry.read_text(encoding="utf-8"))
+            entry = (data.get("extensions") or {}).get("ai-verse-memory")
+            if (
+                isinstance(entry, dict)
+                and entry.get("supported") is True
+                and entry.get("installed") is True
+                and entry.get("enabled") is True
+            ):
+                return True
+        except Exception:
+            pass
     markers = [
         root / "scripts" / "ai-verse-memory" / "memory.py",
         root / ".claude" / "skills" / "ai-verse-memory" / "SKILL.md",
         root / ".agents" / "skills" / "ai-verse-memory" / "SKILL.md",
     ]
-    if any(path.is_file() for path in markers):
-        return True
-    registry = root / "skills" / "registry.yaml"
-    if registry.is_file():
-        try:
-            return "ai-verse-memory" in registry.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            return False
-    return False
+    return any(path.is_file() for path in markers)
 
 
 def inspect_host(root: str) -> IntegrationReport:
@@ -192,11 +137,7 @@ def inspect_host(root: str) -> IntegrationReport:
         and operator_ok
         and workspaces_ok
     )
-    settings = _extension_settings(text, "brain")
-    brain_slot = settings is not None
-    brain_supported = _contract_bool(settings, "supported")
-    brain_enabled = _contract_bool(settings, "enabled")
-    registration_valid = bool(brain_slot and brain_supported is True and brain_enabled is True)
+
     warnings: List[str] = []
     if not compatible:
         warnings.append(
@@ -207,21 +148,46 @@ def inspect_host(root: str) -> IntegrationReport:
             schema_version=schema_version,
             architecture=architecture,
             memory_detected=_memory_detected(base),
-            brain_extension_slot=brain_slot,
-            brain_supported=brain_supported,
-            brain_enabled=brain_enabled,
-            brain_registration_valid=False,
             warnings=warnings,
         )
 
-    if not brain_slot:
+    entry: Optional[Dict[str, object]] = None
+    attachment_error: Optional[str] = None
+    try:
+        entry = brain_attachment(str(base))
+    except ValidationError as exc:
+        attachment_error = str(exc)
+
+    brain_slot = entry is not None
+    brain_supported = entry.get("supported") if entry else None
+    brain_enabled = entry.get("enabled") if entry else None
+    brain_installed = entry.get("installed") if entry else None
+    registration_valid = bool(
+        brain_slot
+        and brain_supported is True
+        and brain_enabled is True
+        and brain_installed is True
+    )
+
+    if attachment_error:
+        warnings.append(f"local Brain attachment is invalid: {attachment_error}")
+    elif not brain_slot:
         warnings.append(
-            "compatible OS v2 detected but AI-VERSE.yaml has no extensions.brain registration; Brain must not patch the OS manifest implicitly"
+            "compatible OS v2 detected but Brain is not attached in .aiverse/extensions/registry.json; "
+            "run ai-verse-brain attach <root> --apply"
         )
     elif brain_supported is not True:
-        warnings.append("extensions.brain.supported must be explicitly true before native Brain writes are allowed")
+        warnings.append("ai-verse-brain local registration must declare supported=true")
+    elif brain_installed is not True:
+        warnings.append("ai-verse-brain local registration must declare installed=true")
     elif brain_enabled is not True:
-        warnings.append("extensions.brain.enabled must be explicitly true before native Brain writes are allowed")
+        warnings.append("ai-verse-brain local registration is disabled")
+
+    if _legacy_brain_manifest_registration(text):
+        warnings.append(
+            "legacy tracked AI-VERSE.yaml extensions.brain registration detected; "
+            "it is no longer installation authority and should be removed so OS updates stay clean"
+        )
 
     return IntegrationReport(
         str(base), HostMode.AI_VERSE_OS_V2, True,
@@ -229,8 +195,8 @@ def inspect_host(root: str) -> IntegrationReport:
         architecture=architecture,
         memory_detected=_memory_detected(base),
         brain_extension_slot=brain_slot,
-        brain_supported=brain_supported,
-        brain_enabled=brain_enabled,
+        brain_supported=brain_supported if isinstance(brain_supported, bool) else None,
+        brain_enabled=brain_enabled if isinstance(brain_enabled, bool) else None,
         brain_registration_valid=registration_valid,
         warnings=warnings,
     )
@@ -269,11 +235,15 @@ def native_registration_blockers(report: IntegrationReport) -> List[str]:
         return []
     blockers: List[str] = []
     if not report.brain_extension_slot:
-        blockers.append("AI-VERSE.yaml does not expose extensions.brain registration")
+        blockers.append(
+            "Brain is not attached in .aiverse/extensions/registry.json; run ai-verse-brain attach <root> --apply"
+        )
     elif report.brain_supported is not True:
-        blockers.append("extensions.brain.supported must be explicitly true")
+        blockers.append("ai-verse-brain local registration must declare supported=true")
     if report.brain_extension_slot and report.brain_enabled is not True:
-        blockers.append("extensions.brain.enabled must be explicitly true")
+        blockers.append("ai-verse-brain local registration must declare enabled=true")
+    if report.brain_extension_slot and not report.brain_registration_valid and not blockers:
+        blockers.append("ai-verse-brain local registration is not installed/write-ready")
     return blockers
 
 
@@ -301,6 +271,11 @@ def plan_integration(root: str) -> IntegrationPlan:
         )
 
     steps = [
+        {
+            "action": "attach_local_extension",
+            "target": ".aiverse/extensions/registry.json#ai-verse-brain",
+            "owner": "brain-installation",
+        },
         {"action": "use_operator_state", "target": "operator/brain/", "owner": "brain"},
         {"action": "use_workspace_state", "target": "workspaces/<id>/brain/", "owner": "brain"},
         {"action": "use_runtime_root", "target": "runtime/ai-verse-brain/", "owner": "brain-runtime"},
@@ -309,5 +284,6 @@ def plan_integration(root: str) -> IntegrationPlan:
     ]
     blockers = native_registration_blockers(report)
     notes = list(report.warnings)
+    notes.append("Brain attachment never modifies tracked AI-Verse OS files")
     notes.append("Memory is optional; Brain must not copy or merge the Memory implementation")
     return IntegrationPlan(report.mode, not blockers, steps, blockers, notes)
