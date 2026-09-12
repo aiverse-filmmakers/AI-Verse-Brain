@@ -11,12 +11,13 @@ from .cadence import Trigger
 from .cadence_hooks import effective_cadence_policy, render_cadence_hooks
 from .cadence_plan import plan_cadence
 from .controller import BrainController
-from .direction_ownership import DirectionOwnershipService
+from .direction_ownership import DirectionOwnershipService, read_registry as read_direction_registry
 from .doctor import run_doctor
-from .errors import BrainError
+from .errors import BrainError, ValidationError
+from .extension_registry import attach_brain, brain_attachment, detach_brain_registration, set_brain_enabled
 from .host_selection import HostSelection, select_host
 from .installation import initialize, plan_init, read_installation_marker
-from .integration import plan_integration
+from .integration import HostMode, inspect_host, plan_integration
 from .migration import apply_migration, plan_migration
 from .models import Scope
 from .onboarding import OnboardingService
@@ -32,6 +33,18 @@ def build_parser() -> argparse.ArgumentParser:
     init = sub.add_parser("init", help="plan or initialize Brain-owned state without modifying host-owned canonical files")
     init.add_argument("root", nargs="?", default=".")
     init.add_argument("--apply", action="store_true", help="apply the safe initialization plan; default is dry-run")
+
+    attach = sub.add_parser("attach", help="attach Brain to a compatible AI-Verse OS through the local extension registry")
+    attach.add_argument("root", nargs="?", default=".")
+    attach.add_argument("--apply", action="store_true", help="write the local attachment; default is dry-run")
+
+    disable = sub.add_parser("disable", help="disable an attached native Brain without deleting Brain state")
+    disable.add_argument("root", nargs="?", default=".")
+    disable.add_argument("--apply", action="store_true", help="disable the local attachment; default is dry-run")
+
+    detach = sub.add_parser("detach", help="remove Brain's local OS attachment while preserving Brain state")
+    detach.add_argument("root", nargs="?", default=".")
+    detach.add_argument("--apply", action="store_true", help="remove the local attachment; default is dry-run")
 
     onboard = sub.add_parser("onboard", help="inspect or apply explicit user intent onboarding")
     onboard.add_argument("root", nargs="?", default=".")
@@ -130,6 +143,26 @@ def _tick_summary(result, host_selection: HostSelection, runtime: BrainRuntime) 
     return build_tick_summary(result, host_selection, runtime)
 
 
+def _brain_owned_scopes(root: str) -> list[str]:
+    report = inspect_host(root)
+    if report.mode != HostMode.AI_VERSE_OS_V2:
+        return []
+    registry = read_direction_registry(Path(root).resolve())
+    return sorted(
+        scope
+        for scope, record in registry.get("scopes", {}).items()
+        if isinstance(record, dict) and record.get("owner") == "brain"
+    )
+
+
+def _require_native_host(root: str) -> None:
+    report = inspect_host(root)
+    if report.mode == HostMode.STANDALONE:
+        raise ValidationError("Brain attachment requires a compatible AI-Verse OS root")
+    if report.mode == HostMode.INCOMPATIBLE_AI_VERSE:
+        raise ValidationError("Brain attachment blocked: incompatible AI-Verse OS host")
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     args = build_parser().parse_args(argv)
     try:
@@ -141,6 +174,52 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             plan = plan_init(root)
             _print(plan.to_dict())
             return 0 if plan.safe_to_apply else 3
+
+        if args.command == "attach":
+            root = str(Path(args.root).resolve())
+            _require_native_host(root)
+            current = brain_attachment(root)
+            if not args.apply:
+                _print({
+                    "ok": True,
+                    "dry_run": True,
+                    "root": root,
+                    "current": current,
+                    "will_attach": current is None or current.get("installed") is not True,
+                    "tracked_os_files_modified": False,
+                })
+                return 0
+            _print({"ok": True, "attachment": attach_brain(root), "tracked_os_files_modified": False})
+            return 0
+
+        if args.command in {"disable", "detach"}:
+            root = str(Path(args.root).resolve())
+            _require_native_host(root)
+            owners = _brain_owned_scopes(root)
+            if owners:
+                raise ValidationError(
+                    "Brain cannot be disabled or detached while it owns strategic direction for: "
+                    + ", ".join(owners)
+                    + ". Transfer direction ownership before removing Brain availability."
+                )
+            current = brain_attachment(root)
+            if not args.apply:
+                _print({
+                    "ok": True,
+                    "dry_run": True,
+                    "root": root,
+                    "current": current,
+                    "operation": args.command,
+                    "canonical_brain_state_preserved": True,
+                })
+                return 0
+            if args.command == "disable":
+                attachment = set_brain_enabled(root, False)
+                _print({"ok": True, "attachment": attachment, "canonical_brain_state_preserved": True})
+            else:
+                removed = detach_brain_registration(root)
+                _print({"ok": True, "detached": removed, "canonical_brain_state_preserved": True})
+            return 0
 
         if args.command == "onboard":
             root = str(Path(args.root))
