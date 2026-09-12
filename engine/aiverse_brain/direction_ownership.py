@@ -27,6 +27,13 @@ _REGISTRY_LOCK_POLL_SECONDS = 0.02
 _STRATEGIC_ANSWER_KEYS = {
     "desired_state", "success_definition", "goals", "boundaries", "constraints",
 }
+_STRATEGIC_SUBTYPES = {
+    "desired_state": "Desired state",
+    "success_definition": "Success definition",
+    "goal": "Goal",
+    "boundary": "Boundary",
+    "constraint": "Constraint",
+}
 
 
 def _utc_now() -> str:
@@ -78,6 +85,60 @@ def _atomic_json_write(root: Path, target: Path, data: Dict[str, Any]) -> None:
     finally:
         if os.path.exists(temp_name):
             os.unlink(temp_name)
+
+
+def _atomic_text_write(root: Path, boundary: Path, target: Path, text: str) -> None:
+    root = Path(root).resolve()
+    boundary = Path(boundary).resolve()
+    target = Path(target)
+    if not boundary.is_dir() or boundary.is_symlink():
+        raise ValidationError("direction export target boundary must be a real directory")
+    if not _inside(boundary, root):
+        raise ValidationError("direction export boundary escapes host root")
+    if target.exists() and (target.is_symlink() or not target.is_file()):
+        raise ValidationError(f"direction export target is unsafe: {target}")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if target.parent.is_symlink() or not _inside(target.parent, boundary):
+        raise ValidationError("direction export target parent escapes its scope boundary")
+    fd, temp_name = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".tmp", dir=str(target.parent))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp_name, target)
+    finally:
+        if os.path.exists(temp_name):
+            os.unlink(temp_name)
+
+
+def _replace_h2_section(text: str, heading: str, body_lines: List[str]) -> str:
+    lines = text.splitlines()
+    match_index: Optional[int] = None
+    end_index = len(lines)
+    wanted = heading.strip().casefold()
+    for index, line in enumerate(lines):
+        match = re.match(r"^##\s+(.+?)\s*$", line)
+        if match and match.group(1).strip().casefold() == wanted:
+            match_index = index
+            for later in range(index + 1, len(lines)):
+                if re.match(r"^##\s+(.+?)\s*$", lines[later]):
+                    end_index = later
+                    break
+            break
+
+    section = [f"## {heading}", "", *body_lines]
+    if match_index is None:
+        base = text.rstrip()
+        return (base + ("\n\n" if base else "") + "\n".join(section).rstrip() + "\n")
+    before = lines[:match_index]
+    after = lines[end_index:]
+    rebuilt = before + section
+    if after:
+        if rebuilt and rebuilt[-1] != "":
+            rebuilt.append("")
+        rebuilt.extend(after)
+    return "\n".join(rebuilt).rstrip() + "\n"
 
 
 def _empty_registry() -> Dict[str, Any]:
@@ -159,6 +220,26 @@ class DirectionHandoverPlan:
             "current_owner": self.current_owner,
             "can_handover": self.can_handover,
             "import_candidates": [item.to_dict() for item in self.import_candidates],
+            "notes": list(self.notes),
+        }
+
+
+@dataclass(frozen=True)
+class DirectionReturnPlan:
+    scope: str
+    current_owner: str
+    can_handover: bool
+    target_path: Optional[str]
+    export_items: List[Dict[str, str]] = field(default_factory=list)
+    notes: List[str] = field(default_factory=list)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "scope": self.scope,
+            "current_owner": self.current_owner,
+            "can_handover": self.can_handover,
+            "target_path": self.target_path,
+            "export_items": [dict(item) for item in self.export_items],
             "notes": list(self.notes),
         }
 
@@ -327,6 +408,175 @@ class DirectionOwnershipService:
             list(record.get("brain_refs", [])),
             list(record.get("legacy_sources", [])),
         )
+
+    def _os_current_target(self, scope: str) -> tuple[Path, Path, str]:
+        parsed = Scope(scope)
+        if parsed.is_operator:
+            boundary = self.root / "operator"
+            target = boundary / "context" / "CURRENT.md"
+            return boundary, target, "Current priorities"
+        boundary = self.root / "workspaces" / str(parsed.workspace_id)
+        if not boundary.is_dir() or boundary.is_symlink():
+            raise ValidationError(f"workspace does not exist or is unsafe: {parsed.workspace_id}")
+        target = boundary / "context" / "CURRENT.md"
+        return boundary, target, "Objective"
+
+    def _brain_direction_items(self, scope: str) -> List[Dict[str, str]]:
+        result: List[Dict[str, str]] = []
+        for obj in self.controller.store.list("intent", scope, {"CONFIRMED", "ACTIVE"}):
+            subtype = obj.payload.get("subtype")
+            statement = obj.payload.get("statement")
+            if subtype not in _STRATEGIC_SUBTYPES:
+                continue
+            if not isinstance(statement, str) or not statement.strip():
+                continue
+            result.append({
+                "ref": f"brain:intent:{obj.id}",
+                "subtype": str(subtype),
+                "label": _STRATEGIC_SUBTYPES[str(subtype)],
+                "statement": statement.strip(),
+            })
+        return result
+
+    def plan_return_to_os(self, scope: str) -> DirectionReturnPlan:
+        Scope(scope)
+        owner = self.owner(scope)
+        if self.controller.layout.mode != "native":
+            return DirectionReturnPlan(
+                scope, owner, False, None, [],
+                ["Standalone Brain has no AI-Verse OS strategic owner to return to."],
+            )
+        boundary, target, _ = self._os_current_target(scope)
+        items = self._brain_direction_items(scope) if owner == _OWNER_BRAIN else []
+        return DirectionReturnPlan(
+            scope=scope,
+            current_owner=owner,
+            can_handover=(owner == _OWNER_BRAIN and bool(items)),
+            target_path=target.relative_to(self.root).as_posix(),
+            export_items=items,
+            notes=[
+                "Return requires explicit --apply --confirm-export.",
+                "Brain strategic intent is exported before ownership changes.",
+                "Only the OS strategic section is replaced; operational/current-state sections are preserved.",
+                "Canonical Brain objects remain intact as provenance after OS becomes the owner.",
+                "If export succeeds but ownership flip is interrupted, Brain remains owner and OS continues filtering the staged OS strategic section.",
+            ],
+        )
+
+    def _render_return_export(
+        self,
+        scope: str,
+        handback_id: str,
+        items: List[Dict[str, str]],
+        target_relative: str,
+    ) -> Path:
+        export = (
+            self.root
+            / ".aiverse"
+            / "direction"
+            / "exports"
+            / f"{_safe_scope_filename(scope)}-{handback_id}.md"
+        )
+        _assert_safe_direction_path(self.root, export)
+        lines = [
+            f"# Brain → OS Direction Export — {scope}",
+            "",
+            f"Handback: `{handback_id}`",
+            f"Target OS source: `{target_relative}`",
+            "",
+            "This snapshot was explicitly exported before strategic ownership returned to AI-Verse OS.",
+            "Canonical Brain objects are retained as provenance; this export does not delete or rewrite them.",
+            "",
+            "## Strategic direction",
+            "",
+        ]
+        for item in items:
+            lines.append(f"- **{item['label']}**: {item['statement']}  ")
+            lines.append(f"  Brain ref: `{item['ref']}`")
+        lines.append("")
+        export.parent.mkdir(parents=True, exist_ok=True)
+        _atomic_text_write(self.root, self.root / ".aiverse" / "direction", export, "\n".join(lines))
+        return export
+
+    def handback_to_os(self, scope: str, *, confirm_export: bool) -> DirectionHandoverResult:
+        Scope(scope)
+        if not confirm_export:
+            raise ValidationError("explicit --confirm-export is required for Brain-to-OS direction handback")
+        if self.controller.layout.mode != "native":
+            raise ValidationError("direction handback requires an AI-Verse OS native installation")
+
+        with self.lock.acquire(scope):
+            with self._registry_guard():
+                registry = read_registry(self.root)
+                existing = registry["scopes"].get(scope)
+                if not isinstance(existing, dict) or existing.get("owner") != _OWNER_BRAIN:
+                    if existing and existing.get("owner") == _OWNER_OS:
+                        return self.status(scope)
+                    raise ValidationError(f"Brain does not own strategic direction for {scope}")
+                if existing.get("state") != "active":
+                    raise ValidationError(
+                        f"Brain direction handover for {scope} is not active; resume/repair it before returning ownership"
+                    )
+
+                items = self._brain_direction_items(scope)
+                if not items:
+                    raise ValidationError(
+                        f"cannot return {scope} direction to OS without at least one confirmed/active Brain strategic intent"
+                    )
+
+                boundary, target, heading = self._os_current_target(scope)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                current = target.read_text(encoding="utf-8", errors="replace") if target.exists() else ""
+                before_sha = _sha256(current.encode("utf-8"))
+                handback_id = f"handback-{uuid4()}"
+                body = [f"- {item['label']}: {item['statement']}" for item in items]
+                staged = _replace_h2_section(current, heading, body)
+                _atomic_text_write(self.root, boundary, target, staged)
+                target_sha = _sha256(staged.encode("utf-8"))
+
+                export = self._render_return_export(
+                    scope,
+                    handback_id,
+                    items,
+                    target.relative_to(self.root).as_posix(),
+                )
+
+                latest = read_registry(self.root)
+                record = latest["scopes"].get(scope)
+                if (
+                    not isinstance(record, dict)
+                    or record.get("owner") != _OWNER_BRAIN
+                    or record.get("state") != "active"
+                ):
+                    raise ValidationError(
+                        "direction ownership changed while Brain-to-OS export was being staged; ownership was not flipped"
+                    )
+
+                returned = dict(record)
+                returned.update({
+                    "owner": _OWNER_OS,
+                    "state": "active",
+                    "handback_id": handback_id,
+                    "handed_back_at": _utc_now(),
+                    "handback_actor": "explicit-user",
+                    "export_confirmed": True,
+                    "os_source_path": target.relative_to(self.root).as_posix(),
+                    "os_source_previous_sha256": before_sha,
+                    "os_source_sha256": target_sha,
+                    "brain_export_path": export.relative_to(self.root).as_posix(),
+                    "brain_refs": [item["ref"] for item in items],
+                })
+                latest["scopes"][scope] = returned
+                _atomic_json_write(self.root, ownership_path(self.root), latest)
+
+                return DirectionHandoverResult(
+                    scope,
+                    _OWNER_OS,
+                    handback_id,
+                    "active",
+                    list(returned.get("brain_refs", [])),
+                    list(returned.get("legacy_sources", [])),
+                )
 
     def _create_proposed_intent(self, scope: str, candidate: DirectionImportCandidate, handover_id: str) -> BrainObject:
         payload = {
