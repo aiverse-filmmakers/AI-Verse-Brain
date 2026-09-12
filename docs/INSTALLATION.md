@@ -75,6 +75,15 @@ ai-verse-brain detach /path/to/AI-Verse-OS --apply
 
 Disable/detach preserve Brain state and are refused while Brain owns strategic direction for any scope.
 
+Before disabling or detaching a Brain-owned scope, return direction explicitly:
+
+```bash
+ai-verse-brain direction-owner /path/to/AI-Verse-OS --scope operator --handover-to-os
+ai-verse-brain direction-owner /path/to/AI-Verse-OS --scope operator --handover-to-os --apply --confirm-export
+```
+
+The dry run lists the Brain strategic items and OS target path. Apply writes the bounded OS strategic section and a provenance export before changing the owner marker. A crash before the marker flip leaves Brain as owner, so OS never silently resumes stale strategy.
+
 ## 4. Onboard explicit intent
 
 Inspect questions:
