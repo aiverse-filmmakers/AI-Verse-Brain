@@ -5,7 +5,7 @@ from pathlib import Path
 from aiverse_brain.authority import AuthorityTier, assert_control_channel, assert_self_evolution_fields
 from aiverse_brain.cadence import Trigger
 from aiverse_brain.controller import BrainController
-from aiverse_brain.errors import AuthorityError, DuplicateTrigger, PermissionDenied, PolicyViolation, RevisionConflict, TransitionError, ValidationError
+from aiverse_brain.errors import AuthorityError, DuplicateTrigger, PermissionDenied, PolicyViolation, RevisionConflict, ScopeError, TransitionError, ValidationError
 from aiverse_brain.installation import initialize
 from aiverse_brain.models import BrainObject, EvidenceRef, Scope
 from aiverse_brain.policy import BrainPolicy, ProactivityLevel
@@ -31,6 +31,14 @@ def objective_payload(status="unverified", evidence=None):
     if evidence is not None:
         criterion["evidence_refs"] = evidence
     return {"outcome": "done", "criteria": [criterion], "progress": "complete_unverified"}
+
+
+class ScopeContractTests(unittest.TestCase):
+    def test_workspace_scope_matches_os_workspace_id_schema(self):
+        self.assertEqual(Scope("workspace:film-project").workspace_id, "film-project")
+        for invalid in ("workspace:film_project", "workspace:film.project"):
+            with self.assertRaises(ScopeError):
+                Scope(invalid)
 
 
 class StateMachineTests(unittest.TestCase):
