@@ -6,6 +6,7 @@ from pathlib import Path
 from aiverse_brain.controller import BrainController
 from aiverse_brain.doctor import run_doctor
 from aiverse_brain.errors import ValidationError
+from aiverse_brain.extension_registry import brain_attachment
 from aiverse_brain.installation import initialize, plan_init, read_installation_marker
 from aiverse_brain.onboarding import OnboardingService
 
@@ -57,7 +58,7 @@ class ShipmentInitializationTests(unittest.TestCase):
             self.assertEqual(plan.mode.value, "incompatible-ai-verse")
             self.assertFalse((root / ".ai-verse-brain").exists())
 
-    def test_native_ai_verse_without_brain_slot_is_blocked_without_patch(self):
+    def test_native_ai_verse_without_attachment_is_safe_and_auto_attaches_without_patch(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             manifest = 'schema_version: "2.0"\narchitecture: unified-workspace\n'
@@ -65,22 +66,17 @@ class ShipmentInitializationTests(unittest.TestCase):
             (root / "operator").mkdir()
             (root / "workspaces").mkdir()
             plan = plan_init(str(root))
-            self.assertFalse(plan.safe_to_apply)
-            self.assertTrue(any("extensions.brain" in item for item in plan.blockers))
+            self.assertTrue(plan.safe_to_apply)
+            self.assertTrue(any("#ai-verse-brain" in item for item in plan.creates))
+            result = initialize(str(root))
+            self.assertTrue(result.created)
+            self.assertIsNotNone(brain_attachment(str(root)))
             self.assertEqual((root / "AI-VERSE.yaml").read_text(encoding="utf-8"), manifest)
-            self.assertFalse((root / "operator" / "brain").exists())
 
-    def test_native_ai_verse_with_enabled_registration_initializes_only_brain_owned_paths(self):
+    def test_native_ai_verse_initializes_only_brain_owned_and_local_attachment_paths(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            manifest = (
-                'schema_version: "2.0"\n'
-                'architecture: unified-workspace\n'
-                'extensions:\n'
-                '  brain:\n'
-                '    supported: true\n'
-                '    enabled: true\n'
-            )
+            manifest = 'schema_version: "2.0"\narchitecture: unified-workspace\n'
             (root / "AI-VERSE.yaml").write_text(manifest, encoding="utf-8")
             (root / "operator").mkdir()
             (root / "workspaces").mkdir()
@@ -88,6 +84,7 @@ class ShipmentInitializationTests(unittest.TestCase):
             self.assertTrue(result.created)
             self.assertTrue((root / "operator" / "brain" / "installation.json").is_file())
             self.assertTrue((root / "runtime" / "ai-verse-brain").is_dir())
+            self.assertTrue((root / ".aiverse" / "extensions" / "registry.json").is_file())
             self.assertEqual((root / "AI-VERSE.yaml").read_text(encoding="utf-8"), manifest)
             self.assertFalse((root / ".ai-verse-brain").exists())
 
