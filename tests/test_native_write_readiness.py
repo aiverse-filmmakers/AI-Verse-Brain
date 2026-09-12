@@ -204,6 +204,38 @@ class NativeWriteReadinessAcceptanceTests(unittest.TestCase):
             self.assertEqual(tree_snapshot(root), before)
             self.assertIsNotNone(brain_attachment(str(root)))
 
+    def test_explicit_handback_allows_safe_detach_without_deleting_brain_state(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "host"
+            root.mkdir()
+            make_native(root)
+            initialize(str(root))
+            handover_operator_direction(root)
+            saved = confirmed_goal(BrainController(str(root)), "safe detach after handback")
+            brain_file = root / "operator" / "brain" / "intent" / f"{saved.id}.json"
+            self.assertTrue(brain_file.is_file())
+
+            rc = cli_main([
+                "direction-owner",
+                str(root),
+                "--scope",
+                "operator",
+                "--handover-to-os",
+                "--apply",
+                "--confirm-export",
+            ])
+            self.assertEqual(rc, 0)
+            self.assertEqual(BrainController(str(root)).direction_owner("operator"), "os")
+
+            rc = cli_main(["detach", str(root), "--apply"])
+            self.assertEqual(rc, 0)
+            self.assertIsNone(brain_attachment(str(root)))
+            self.assertTrue(brain_file.is_file())
+            self.assertIn(
+                "safe detach after handback",
+                (root / "operator" / "context" / "CURRENT.md").read_text(encoding="utf-8"),
+            )
+
     def test_incompatible_ai_verse_host_never_gets_parallel_or_native_brain_state(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp) / "host"
