@@ -101,6 +101,22 @@ ai-verse-brain detach /path/to/AI-Verse-OS --apply
 
 Disable/detach preserve canonical Brain state. They are blocked while Brain owns strategic direction for any scope, so Brain cannot be removed in a way that silently reactivates stale OS strategy.
 
+Return strategic ownership deliberately before removing Brain availability:
+
+```bash
+ai-verse-brain direction-owner /path/to/AI-Verse-OS \
+  --scope operator \
+  --handover-to-os
+
+ai-verse-brain direction-owner /path/to/AI-Verse-OS \
+  --scope operator \
+  --handover-to-os \
+  --apply \
+  --confirm-export
+```
+
+The handback first exports the active Brain strategic intent, updates only the OS scope's standard strategic section while preserving operational/current-state sections, and then atomically flips the durable owner to `os`. Brain objects remain intact as provenance.
+
 ## Onboard explicit intent
 
 Inspect the missing Brain-owned primitives:
