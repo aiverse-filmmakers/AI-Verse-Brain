@@ -52,12 +52,14 @@ def build_parser() -> argparse.ArgumentParser:
     onboard.add_argument("--answers", help="path to a JSON answers file")
     onboard.add_argument("--apply", action="store_true", help="apply explicit answers as confirmed Brain intent/practices")
 
-    direction = sub.add_parser("direction-owner", help="inspect or explicitly hand OS strategic direction to Brain")
+    direction = sub.add_parser("direction-owner", help="inspect or explicitly transfer strategic direction between OS and Brain")
     direction.add_argument("root", nargs="?", default=".")
     direction.add_argument("--scope", default="operator")
-    direction.add_argument("--handover-to-brain", action="store_true", help="plan a one-way explicit handover from OS to Brain")
-    direction.add_argument("--apply", action="store_true", help="apply the handover; requires --handover-to-brain and --confirm-import")
-    direction.add_argument("--confirm-import", action="store_true", help="explicitly confirm importing discovered OS goals/objectives with provenance")
+    direction.add_argument("--handover-to-brain", action="store_true", help="plan an explicit handover from OS to Brain")
+    direction.add_argument("--handover-to-os", action="store_true", help="plan an explicit export-and-handback from Brain to OS")
+    direction.add_argument("--apply", action="store_true", help="apply the selected handover after its explicit confirmation flag")
+    direction.add_argument("--confirm-import", action="store_true", help="confirm importing discovered OS goals/objectives before OS-to-Brain handover")
+    direction.add_argument("--confirm-export", action="store_true", help="confirm exporting current Brain strategic intent before Brain-to-OS handback")
 
     adapter = sub.add_parser("adapter-doctor", help="validate and handshake with a JSON subprocess adapter")
     adapter.add_argument("config", help="path to adapter JSON config; credential values must remain outside this file")
@@ -250,16 +252,32 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             if read_installation_marker(root) is None:
                 _print({"ok": False, "error": "Brain is not initialized; run `ai-verse-brain init --apply` first"})
                 return 4
+            if args.handover_to_brain and args.handover_to_os:
+                raise ValueError("choose exactly one of --handover-to-brain or --handover-to-os")
             service = DirectionOwnershipService(BrainController(root))
-            if not args.handover_to_brain:
-                if args.apply or args.confirm_import:
-                    raise ValueError("--apply/--confirm-import require --handover-to-brain")
+            if not args.handover_to_brain and not args.handover_to_os:
+                if args.apply or args.confirm_import or args.confirm_export:
+                    raise ValueError(
+                        "--apply/--confirm-import/--confirm-export require an explicit handover direction"
+                    )
                 _print(service.status(args.scope).to_dict())
                 return 0
-            if not args.apply:
-                _print(service.plan(args.scope).to_dict())
+
+            if args.handover_to_brain:
+                if args.confirm_export:
+                    raise ValueError("--confirm-export is only valid with --handover-to-os")
+                if not args.apply:
+                    _print(service.plan(args.scope).to_dict())
+                    return 0
+                _print(service.handover(args.scope, confirm_import=args.confirm_import).to_dict())
                 return 0
-            _print(service.handover(args.scope, confirm_import=args.confirm_import).to_dict())
+
+            if args.confirm_import:
+                raise ValueError("--confirm-import is only valid with --handover-to-brain")
+            if not args.apply:
+                _print(service.plan_return_to_os(args.scope).to_dict())
+                return 0
+            _print(service.handback_to_os(args.scope, confirm_export=args.confirm_export).to_dict())
             return 0
 
         if args.command == "adapter-doctor":
