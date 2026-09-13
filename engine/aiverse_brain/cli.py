@@ -165,6 +165,13 @@ def build_parser() -> argparse.ArgumentParser:
     goal.add_argument("--input", help="optional JSON file containing completion_contract/criteria/budget/evidence")
     goal.add_argument("--json", action="store_true", help="emit stable structured JSON")
 
+    rollback = sub.add_parser("strategy-rollback", help="restore the exact known-good previous strategy revision")
+    rollback.add_argument("root", nargs="?", default=".")
+    rollback.add_argument("strategy_id")
+    rollback.add_argument("--scope", default="operator")
+    rollback.add_argument("--apply", action="store_true", help="apply restoration; default is dry-run")
+    rollback.add_argument("--json", action="store_true", help="emit stable structured JSON")
+
     migrate = sub.add_parser("migrate", help="plan or apply explicit non-destructive Brain state migration")
     migrate.add_argument("root", nargs="?", default=".")
     migrate.add_argument("--apply", action="store_true", help="apply registered migration/metadata refresh; default is dry-run")
@@ -368,6 +375,29 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                     raise ValidationError("goal continuation requires --goal-id")
                 result = service.continuation_contract(args.scope, args.goal_id)
             _print(result)
+            return 0
+
+        if args.command == "strategy-rollback":
+            root = str(Path(args.root).resolve())
+            if read_installation_marker(root) is None:
+                raise ValidationError("Brain is not initialized; run setup --apply first")
+            controller = BrainController(root)
+            current = controller.store.load("strategy_rule", args.scope, args.strategy_id)
+            previous_id = current.payload.get("previous_revision_ref")
+            if not previous_id:
+                raise ValidationError("strategy has no known-good previous revision")
+            previous = controller.store.load("strategy_rule", args.scope, str(previous_id))
+            if not args.apply:
+                _print({
+                    "ok": True, "dry_run": True, "current_strategy_id": current.id,
+                    "current_status": current.status, "restored_strategy_id": previous.id,
+                    "restored_status": previous.status,
+                })
+                return 0
+            result = controller.strategy_revisions.rollback(
+                args.scope, args.strategy_id, source=AuthorityTier.EXPLICIT_USER, actor="user:cli"
+            )
+            _print({"ok": True, "dry_run": False, "restoration": result.to_dict()})
             return 0
 
         if args.command == "init":
