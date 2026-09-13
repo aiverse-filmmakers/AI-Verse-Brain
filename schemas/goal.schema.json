@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Brain Goal payload",
+  "type": "object",
+  "required": ["objective", "completion_contract", "criteria", "budget_policy", "progress", "activation_epoch"],
+  "properties": {
+    "objective": {"type": "string", "minLength": 1},
+    "completion_contract": {
+      "type": "object",
+      "required": ["outcome", "verification", "constraints", "boundaries", "stop_when"],
+      "properties": {
+        "outcome": {"type": "string", "minLength": 1},
+        "verification": {"type": "array", "items": {"type": "object"}},
+        "constraints": {"type": "array", "items": {"type": "string"}},
+        "boundaries": {"type": "array", "items": {"type": "string"}},
+        "stop_when": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "criteria": {"type": "array", "items": {"type": "object"}},
+    "budget_policy": {
+      "type": "object",
+      "properties": {
+        "max_turns": {"type": ["integer", "null"], "minimum": 1},
+        "max_tokens": {"type": ["integer", "null"], "minimum": 1},
+        "max_cost": {"type": ["number", "null"], "minimum": 0},
+        "deadline": {"type": ["string", "null"], "format": "date-time"},
+        "no_progress_limit": {"type": "integer", "minimum": 1}
+      }
+    },
+    "progress": {"type": "object"},
+    "activation_epoch": {"type": "integer", "minimum": 1},
+    "provenance": {"type": "object"},
+    "notes": {"type": "array"}
+  },
+  "additionalProperties": true
+}
