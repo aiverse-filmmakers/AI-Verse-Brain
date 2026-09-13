@@ -518,7 +518,13 @@ class GoalService:
                 if item.ref not in known: obj.evidence_refs.append(item); known.add(item.ref)
             progress["last_evidence_refs"] = [item.ref for item in incoming]
             budget = obj.payload["budget_policy"]
-            if budget.get("max_turns") is not None and progress["attempts"] >= budget["max_turns"]:
+            deadline_reached = bool(
+                budget.get("deadline")
+                and parse_timestamp(utc_now()) >= parse_timestamp(budget["deadline"], field_name="goal.budget_policy.deadline")
+            )
+            if deadline_reached:
+                obj.status = "BUDGET_LIMITED"
+            elif budget.get("max_turns") is not None and progress["attempts"] >= budget["max_turns"]:
                 obj.status = "BUDGET_LIMITED"
             elif budget.get("max_tokens") is not None and progress["tokens_used"] >= budget["max_tokens"]:
                 obj.status = "USAGE_LIMITED"
@@ -618,11 +624,18 @@ class GoalService:
 
     def continuation_contract(self, scope: str, goal_id: str) -> Dict[str, Any]:
         obj = self.store.load("goal", scope, goal_id)
+        budget = dict(obj.payload["budget_policy"])
+        deadline_reached = bool(
+            budget.get("deadline")
+            and parse_timestamp(utc_now()) >= parse_timestamp(budget["deadline"], field_name="goal.budget_policy.deadline")
+        )
         return {
             "goal_id": obj.id, "goal_version": obj.revision,
             "activation_epoch": int(obj.payload.get("activation_epoch", 1)),
-            "status": INTERNAL_TO_PUBLIC[obj.status], "may_continue": obj.status == "ACTIVE",
-            "budget_policy": dict(obj.payload["budget_policy"]), "progress": dict(obj.payload["progress"]),
+            "status": INTERNAL_TO_PUBLIC[obj.status],
+            "may_continue": obj.status == "ACTIVE" and not deadline_reached,
+            "deadline_reached": deadline_reached,
+            "budget_policy": budget, "progress": dict(obj.payload["progress"]),
             "constraints": list(obj.payload["completion_contract"].get("constraints", [])),
             "boundaries": list(obj.payload["completion_contract"].get("boundaries", [])),
             "stop_when": list(obj.payload["completion_contract"].get("stop_when", [])),
