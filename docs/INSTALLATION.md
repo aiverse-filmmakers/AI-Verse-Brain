@@ -1,22 +1,24 @@
 # Installing AI-Verse Brain
 
-AI-Verse Brain `0.1.0-beta.1` is a public beta release candidate. The installation flow is dry-run-first and preserves Brain's ownership boundary.
+AI-Verse Brain `0.1.0-beta.2` is a public beta release candidate. The installation flow is dry-run-first and preserves Brain's ownership boundary.
 
 ## 1. Install
 
 Python 3.9+ is required.
 
-From the beta tag:
+For a reproducible beta install, use the exact 40-character Git revision recorded for the beta.2 artifact:
 
 ```bash
-python -m pip install "git+https://github.com/aiverse-filmmakers/AI-Verse-Brain.git@v0.1.0-beta.1"
+python -m pip install "git+https://github.com/aiverse-filmmakers/AI-Verse-Brain.git@<exact-beta-2-revision>"
 ```
 
 Or:
 
 ```bash
-pipx install "git+https://github.com/aiverse-filmmakers/AI-Verse-Brain.git@v0.1.0-beta.1"
+pipx install "git+https://github.com/aiverse-filmmakers/AI-Verse-Brain.git@<exact-beta-2-revision>"
 ```
+
+A moving branch is not a release artifact.
 
 From a development checkout:
 
@@ -26,19 +28,23 @@ python -m pip install -e .
 
 Brain has no required third-party runtime Python dependencies.
 
-## 2. Inspect the target before writing
+## 2. Inspect setup before writing
 
 ```bash
-ai-verse-brain init /path/to/your/agent/root
+ai-verse-brain install /path/to/your/agent/root --json
+ai-verse-brain setup /path/to/your/agent/root --json
 ```
 
-This reports detected host mode, Brain-owned state/runtime paths, planned files/directories, warnings/blockers and existing installation state. It writes nothing.
+This reports detected host mode, adoption requirements, warnings/blockers and existing installation state. It writes nothing.
 
-## 3. Apply initialization
+## 3. Apply setup
 
 ```bash
-ai-verse-brain init /path/to/your/agent/root --apply
+ai-verse-brain setup /path/to/your/agent/root --apply --json
+ai-verse-brain status /path/to/your/agent/root --json
 ```
+
+`setup` means attach + initialize/adopt where appropriate. It never silently hands strategic direction from OS to Brain.
 
 Standalone mode creates Brain state under:
 
@@ -56,7 +62,7 @@ workspaces/<id>/brain/
 runtime/ai-verse-brain/
 ```
 
-The installer does not edit tracked `AI-VERSE.yaml`. In native mode, `init --apply` idempotently attaches Brain through:
+The installer does not edit tracked `AI-VERSE.yaml`. In native mode, `setup --apply` idempotently attaches Brain through:
 
 ```text
 .aiverse/extensions/registry.json
@@ -65,15 +71,19 @@ extensions["ai-verse-brain"]
 
 The local entry must remain supported, installed and enabled for normal Brain writes. A disabled, unsupported, malformed or incompatible attachment fails closed. Initialization is the only bootstrap exception to the installation-marker requirement: on a clean compatible OS it first creates the local attachment, then Brain-owned state and `operator/brain/installation.json`.
 
-You can also manage attachment explicitly:
+The public lifecycle is symmetric:
 
 ```bash
-ai-verse-brain attach /path/to/AI-Verse-OS --apply
-ai-verse-brain disable /path/to/AI-Verse-OS --apply
-ai-verse-brain detach /path/to/AI-Verse-OS --apply
+ai-verse-brain status /path/to/AI-Verse-OS --json
+ai-verse-brain disable /path/to/AI-Verse-OS --apply --json
+ai-verse-brain enable /path/to/AI-Verse-OS --apply --json
+ai-verse-brain update /path/to/AI-Verse-OS --apply --json
+ai-verse-brain uninstall /path/to/AI-Verse-OS --apply --json
 ```
 
-Disable/detach preserve Brain state and are refused while Brain owns strategic direction for any scope.
+Legacy `attach` and `detach` commands remain for compatibility.
+
+Disable/uninstall preserve Brain state and are refused while Brain owns strategic direction for any scope.
 
 Before disabling or detaching a Brain-owned scope, return direction explicitly:
 
@@ -83,6 +93,12 @@ ai-verse-brain direction-owner /path/to/AI-Verse-OS --scope operator --handover-
 ```
 
 The dry run lists the Brain strategic items and OS target path. Apply writes the bounded OS strategic section and a provenance export before changing the owner marker. A crash before the marker flip leaves Brain as owner, so OS never silently resumes stale strategy.
+
+## Standalone to native adoption
+
+If Brain was initialized standalone before AI-Verse OS is installed, a later native `setup` detects the old `.ai-verse-brain` store, validates its marker and objects, transactionally retires the old writable authority, stages verified native state, rewrites only Brain installation provenance, and activates `operator/brain/`.
+
+The old source is retained as read-only provenance. Setup does not transfer strategic ownership. A non-empty competing native Brain store, invalid state, incompatible schema or interrupted ambiguous state fails closed.
 
 ## 4. Onboard explicit intent
 
@@ -151,7 +167,7 @@ ai-verse-brain run-tick /path/to/your/agent/root --vendor codex --context-file /
 ai-verse-brain doctor /path/to/your/agent/root
 ```
 
-Doctor is read-only. It checks host compatibility, native registration readiness, parallel-store risk, installation/version integrity, scoped Brain state and onboarding readiness.
+Doctor is read-only. It checks structural state, native discovery/attachment, runtime ownership boundaries and dependency readiness. Operational model/tool execution and whole-system composition are reported as separate layers rather than silently inferred.
 
 ## Cadence
 
@@ -176,6 +192,6 @@ Apply only a registered safe migration or package metadata refresh:
 ai-verse-brain migrate /path/to/your/agent/root --apply
 ```
 
-Newer state, unsupported marker schemas and unknown older schemas fail closed. Native migration writes also require the live supported+enabled Brain registration and valid installation marker. User Brain state is never destructively rewritten merely because a package version changed.
+Newer state, unsupported marker schemas and unknown older schemas fail closed. Normal native state migration writes require a live supported+enabled Brain registration and valid installation marker. Package metadata reconciliation during `update` can run while Brain remains intentionally disabled, without temporarily restoring runtime authority. User Brain state is never destructively rewritten merely because a package version changed.
 
 See [`VENDOR-REASONERS.md`](VENDOR-REASONERS.md), [`ADAPTERS.md`](ADAPTERS.md), [`RELEASE.md`](RELEASE.md) and [`../SECURITY.md`](../SECURITY.md).
