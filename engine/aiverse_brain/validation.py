@@ -10,9 +10,11 @@ _REQUIRED = {
     "opportunity": ("gap_refs", "hypothesis", "confidence"),
     "initiative": ("serves", "gap_refs", "hypothesis", "outcome", "score_components"),
     "objective": ("outcome", "criteria", "progress"),
+    "goal": ("objective", "completion_contract", "criteria", "budget_policy", "progress", "activation_epoch"),
     "model_belief": ("domain", "statement", "epistemic_state", "confidence"),
     "evaluation": ("target_ref", "verification_level", "verdicts"),
     "learning": ("statement", "evidence_strength"),
+    "learning_candidate": ("candidate_id", "suggested_owner", "kind", "summary", "evidence_refs", "risk", "confidence", "created_at"),
     "strategy_rule": ("evolution_tier", "applies_when", "instruction"),
     "policy": (),
 }
@@ -24,9 +26,11 @@ _STATUSES = {
     "opportunity": {"DETECTED", "DISMISSED", "EXPIRED", "WATCHING", "QUALIFIED", "PROPOSED_INITIATIVE"},
     "initiative": {"DISCOVERED", "PROPOSED", "REJECTED", "DEFERRED", "ACCEPTED", "ACTIVE", "WAITING", "BLOCKED", "STALLED", "PAUSED", "REVIEW", "COMPLETED", "ABANDONED", "SUPERSEDED"},
     "objective": {"QUEUED", "READY", "RUNNING", "WAITING", "BLOCKED", "STALLED", "VERIFYING", "PASSED", "FAILED", "INSUFFICIENT_EVIDENCE", "CANCELLED", "SUPERSEDED"},
+    "goal": {"ACTIVE", "PAUSED", "BLOCKED", "BUDGET_LIMITED", "USAGE_LIMITED", "COMPLETE", "CLEARED"},
     "model_belief": {"ACTIVE", "RETIRED", "CONTRADICTED"},
     "evaluation": {"RECORDED", "SUPERSEDED"},
     "learning": {"OBSERVATION", "HYPOTHESIS", "PATTERN", "REFLECTION", "VALIDATED_LEARNING", "STRATEGY_CANDIDATE", "PROMOTED", "REJECTED"},
+    "learning_candidate": {"CANDIDATE", "ROUTED", "RETIRED"},
     "strategy_rule": {"CANDIDATE", "ACTIVE", "RETIRED", "ROLLED_BACK", "REJECTED"},
     "policy": {"ACTIVE", "SUPERSEDED"},
 }
@@ -122,6 +126,67 @@ def validate_payload(kind: str, payload: Dict[str, Any]) -> None:
                     raise ValidationError("objective.budget.max_attempts must be an integer >= 1")
         if "verification_level" in payload and payload["verification_level"] not in {"V0", "V1", "V2", "V3"}:
             raise ValidationError("invalid objective.verification_level")
+
+    if kind == "goal":
+        if not isinstance(payload.get("objective"), str) or not payload["objective"].strip():
+            raise ValidationError("goal.objective must be a non-empty string")
+        contract = payload.get("completion_contract")
+        if not isinstance(contract, dict):
+            raise ValidationError("goal.completion_contract must be an object")
+        for field in ("constraints", "boundaries", "stop_when", "verification"):
+            if field not in contract or not isinstance(contract[field], list):
+                raise ValidationError(f"goal.completion_contract.{field} must be a list")
+        if not isinstance(contract.get("outcome"), str) or not contract["outcome"].strip():
+            raise ValidationError("goal.completion_contract.outcome must be non-empty")
+        if not isinstance(payload.get("criteria"), list):
+            raise ValidationError("goal.criteria must be a list")
+        ids = []
+        for criterion in payload["criteria"]:
+            if not isinstance(criterion, dict) or not {"id", "statement", "status", "evidence_refs"}.issubset(criterion):
+                raise ValidationError("goal criteria require id, statement, status and evidence_refs")
+            if criterion["status"] not in {"unverified", "passed", "failed", "insufficient_evidence", "not_applicable"}:
+                raise ValidationError(f"invalid goal criterion status: {criterion['status']}")
+            if not isinstance(criterion["evidence_refs"], list):
+                raise ValidationError("goal criterion evidence_refs must be a list")
+            if criterion["status"] == "passed" and not criterion["evidence_refs"]:
+                raise ValidationError("passed goal criterion requires evidence_refs")
+            ids.append(criterion["id"])
+        if len(ids) != len(set(ids)):
+            raise ValidationError("goal criterion ids must be unique")
+        budget = payload.get("budget_policy")
+        if not isinstance(budget, dict):
+            raise ValidationError("goal.budget_policy must be an object")
+        for field in ("max_turns", "max_tokens"):
+            value = budget.get(field)
+            if value is not None and (not isinstance(value, int) or isinstance(value, bool) or value < 1):
+                raise ValidationError(f"goal.budget_policy.{field} must be null or integer >= 1")
+        value = budget.get("max_cost")
+        if value is not None and (not isinstance(value, (int, float)) or isinstance(value, bool) or value < 0):
+            raise ValidationError("goal.budget_policy.max_cost must be null or number >= 0")
+        if budget.get("deadline") is not None:
+            parse_timestamp(budget["deadline"], field_name="goal.budget_policy.deadline")
+        npl = budget.get("no_progress_limit")
+        if not isinstance(npl, int) or isinstance(npl, bool) or npl < 1:
+            raise ValidationError("goal.budget_policy.no_progress_limit must be integer >= 1")
+        if not isinstance(payload.get("progress"), dict):
+            raise ValidationError("goal.progress must be an object")
+        epoch = payload.get("activation_epoch")
+        if not isinstance(epoch, int) or isinstance(epoch, bool) or epoch < 1:
+            raise ValidationError("goal.activation_epoch must be integer >= 1")
+
+    if kind == "learning_candidate":
+        if payload.get("suggested_owner") not in {"skills", "memory", "data", "brain", "os", "automation", "bot", "none"}:
+            raise ValidationError("invalid learning_candidate.suggested_owner")
+        if payload.get("kind") not in {"create", "repair", "consolidate", "archive-review", "memory"}:
+            raise ValidationError("invalid learning_candidate.kind")
+        if payload.get("risk") not in {"low", "medium", "high"}:
+            raise ValidationError("invalid learning_candidate.risk")
+        if not isinstance(payload.get("evidence_refs"), list) or not payload["evidence_refs"]:
+            raise ValidationError("learning_candidate.evidence_refs must be a non-empty list")
+        parse_timestamp(payload["created_at"], field_name="learning_candidate.created_at")
+        if payload.get("kind") == "repair":
+            if not all(isinstance(payload.get(field), str) and payload.get(field) for field in ("target_skill_id", "target_generation", "target_digest")):
+                raise ValidationError("repair candidate requires exact target skill, generation and digest")
 
     if kind == "model_belief":
         for field in ("observed_at", "expires_at", "last_reviewed"):
