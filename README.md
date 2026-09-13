@@ -81,7 +81,7 @@ ai-verse-brain status /path/to/agent/root --json
 ai-verse-brain doctor /path/to/agent/root --json
 ```
 
-No state is written by the dry-run `setup` command. `setup --apply` attaches and initializes Brain where appropriate, but it never silently transfers strategic direction to Brain.
+No state is written by that command. The dry-run `setup` command is inspection-only. `setup --apply` attaches and initializes Brain where appropriate, but it never silently transfers strategic direction to Brain.
 
 The legacy `init` command remains available for compatibility, but `setup` is the public-beta lifecycle surface.
 
