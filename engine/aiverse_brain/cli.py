@@ -318,7 +318,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 result = service.transition(
                     args.scope, args.goal_id, expected_version=args.expected_version,
                     operation_id=args.operation_id, action=args.action, note=args.note,
-                    evidence_refs=evidence, source=transition_source, actor="user:cli",
+                    evidence_refs=evidence, criterion_results=payload.get("criterion_results"),
+                    source=transition_source, actor="user:cli",
                 ).to_dict()
             elif args.action == "criteria-add":
                 if not args.goal_id or args.expected_version is None or not args.operation_id:
