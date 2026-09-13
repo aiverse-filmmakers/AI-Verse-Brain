@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Optional, Sequence
 from uuid import uuid4
 
+from .authority import AuthorityTier
 from .bridge import BridgeConfig, adapter_doctor
 from .cadence import Trigger
 from .cadence_hooks import effective_cadence_policy, render_cadence_hooks
@@ -19,7 +20,11 @@ from .host_selection import HostSelection, select_host
 from .installation import initialize, plan_init, read_installation_marker
 from .integration import HostMode, inspect_host, plan_integration
 from .migration import apply_migration, plan_migration
-from .models import Scope
+from .lifecycle import (
+    component_descriptor, disable_component, enable_component, lifecycle_doctor,
+    lifecycle_status, setup_component, uninstall_component, update_component,
+)
+from .models import EvidenceRef, Scope
 from .onboarding import OnboardingService
 from .runtime import BrainRuntime
 from .tick_output import build_tick_summary
@@ -33,6 +38,39 @@ def build_parser() -> argparse.ArgumentParser:
     init = sub.add_parser("init", help="plan or initialize Brain-owned state without modifying host-owned canonical files")
     init.add_argument("root", nargs="?", default=".")
     init.add_argument("--apply", action="store_true", help="apply the safe initialization plan; default is dry-run")
+    init.add_argument("--json", action="store_true", help="emit stable structured JSON")
+
+    install_cmd = sub.add_parser("install", help="report the installed Brain package and machine-readable install contract")
+    install_cmd.add_argument("root", nargs="?", default=".")
+    install_cmd.add_argument("--json", action="store_true", help="emit stable structured JSON")
+
+    setup_cmd = sub.add_parser("setup", help="attach/adopt/initialize Brain without strategic authority handover")
+    setup_cmd.add_argument("root", nargs="?", default=".")
+    setup_cmd.add_argument("--apply", action="store_true", help="apply the setup plan; default is dry-run")
+    setup_cmd.add_argument("--json", action="store_true", help="emit stable structured JSON")
+
+    status_cmd = sub.add_parser("status", help="fast non-destructive public lifecycle status")
+    status_cmd.add_argument("root", nargs="?", default=".")
+    status_cmd.add_argument("--json", action="store_true", help="emit stable structured JSON")
+
+    enable_cmd = sub.add_parser("enable", help="re-enable an attached native Brain")
+    enable_cmd.add_argument("root", nargs="?", default=".")
+    enable_cmd.add_argument("--apply", action="store_true", help="apply enablement; default is dry-run")
+    enable_cmd.add_argument("--json", action="store_true", help="emit stable structured JSON")
+
+    update_cmd = sub.add_parser("update", help="reconcile Brain package/state metadata after software update")
+    update_cmd.add_argument("root", nargs="?", default=".")
+    update_cmd.add_argument("--apply", action="store_true", help="apply safe state/metadata update; default is dry-run")
+    update_cmd.add_argument("--json", action="store_true", help="emit stable structured JSON")
+
+    uninstall_cmd = sub.add_parser("uninstall", help="remove Brain integration while preserving canonical state by default")
+    uninstall_cmd.add_argument("root", nargs="?", default=".")
+    uninstall_cmd.add_argument("--apply", action="store_true", help="detach integration; default is dry-run")
+    uninstall_cmd.add_argument("--json", action="store_true", help="emit stable structured JSON")
+
+    descriptor_cmd = sub.add_parser("descriptor", help="machine-readable component lifecycle descriptor")
+    descriptor_cmd.add_argument("root", nargs="?", default=".")
+    descriptor_cmd.add_argument("--json", action="store_true", help="emit stable structured JSON")
 
     attach = sub.add_parser("attach", help="attach Brain to a compatible AI-Verse OS through the local extension registry")
     attach.add_argument("root", nargs="?", default=".")
@@ -41,6 +79,7 @@ def build_parser() -> argparse.ArgumentParser:
     disable = sub.add_parser("disable", help="disable an attached native Brain without deleting Brain state")
     disable.add_argument("root", nargs="?", default=".")
     disable.add_argument("--apply", action="store_true", help="disable the local attachment; default is dry-run")
+    disable.add_argument("--json", action="store_true", help="emit stable structured JSON")
 
     detach = sub.add_parser("detach", help="remove Brain's local OS attachment while preserving Brain state")
     detach.add_argument("root", nargs="?", default=".")
@@ -104,6 +143,34 @@ def build_parser() -> argparse.ArgumentParser:
 
     doctor = sub.add_parser("doctor", help="read-only host, installation, and Brain-state health checks")
     doctor.add_argument("root", nargs="?", default=".")
+    doctor.add_argument("--json", action="store_true", help="emit stable structured JSON")
+
+    goal = sub.add_parser("goal", help="Brain-owned canonical Goal API for Gateway/operators")
+    goal.add_argument("root", nargs="?", default=".")
+    goal.add_argument("action", choices=[
+        "create", "status", "show", "edit", "pause", "resume", "block", "complete", "clear",
+        "criteria-add", "criteria-remove", "criteria-clear", "evaluate", "progress", "continuation",
+    ])
+    goal.add_argument("--scope", default="operator")
+    goal.add_argument("--goal-id")
+    goal.add_argument("--objective")
+    goal.add_argument("--expected-version", type=int)
+    goal.add_argument("--operation-id")
+    goal.add_argument("--note")
+    goal.add_argument("--criterion")
+    goal.add_argument("--criterion-id")
+    goal.add_argument("--progress-token")
+    goal.add_argument("--tokens-used", type=int, default=0)
+    goal.add_argument("--cost-used", type=float, default=0.0)
+    goal.add_argument("--input", help="optional JSON file containing completion_contract/criteria/budget/evidence")
+    goal.add_argument("--json", action="store_true", help="emit stable structured JSON")
+
+    rollback = sub.add_parser("strategy-rollback", help="restore the exact known-good previous strategy revision")
+    rollback.add_argument("root", nargs="?", default=".")
+    rollback.add_argument("strategy_id")
+    rollback.add_argument("--scope", default="operator")
+    rollback.add_argument("--apply", action="store_true", help="apply restoration; default is dry-run")
+    rollback.add_argument("--json", action="store_true", help="emit stable structured JSON")
 
     migrate = sub.add_parser("migrate", help="plan or apply explicit non-destructive Brain state migration")
     migrate.add_argument("root", nargs="?", default=".")
@@ -168,6 +235,171 @@ def _require_native_host(root: str) -> None:
 def main(argv: Optional[Sequence[str]] = None) -> int:
     args = build_parser().parse_args(argv)
     try:
+        if args.command == "install":
+            root = str(Path(args.root).resolve())
+            _print({
+                "ok": True,
+                "state": "installed",
+                "note": "The ai-verse-brain package is already available because this command is running.",
+                "descriptor": component_descriptor(root),
+            })
+            return 0
+
+        if args.command == "setup":
+            result = setup_component(str(Path(args.root)), apply=args.apply)
+            _print(result)
+            return 0 if result.get("ok", False) else 3
+
+        if args.command == "status":
+            result = lifecycle_status(str(Path(args.root))).to_dict()
+            _print(result)
+            return 0 if result["state"] not in {"unhealthy"} else 2
+
+        if args.command == "descriptor":
+            _print(component_descriptor(str(Path(args.root))))
+            return 0
+
+        if args.command == "enable":
+            result = enable_component(str(Path(args.root)), apply=args.apply)
+            _print(result)
+            return 0 if result.get("ok", False) else 3
+
+        if args.command == "disable":
+            result = disable_component(str(Path(args.root)), apply=args.apply)
+            _print(result)
+            return 0 if result.get("ok", False) else 3
+
+        if args.command == "update":
+            result = update_component(str(Path(args.root)), apply=args.apply)
+            _print(result)
+            return 0 if result.get("ok", False) else 3
+
+        if args.command == "uninstall":
+            result = uninstall_component(str(Path(args.root)), apply=args.apply)
+            _print(result)
+            return 0 if result.get("ok", False) else 3
+
+        if args.command == "goal":
+            root = str(Path(args.root).resolve())
+            if read_installation_marker(root) is None:
+                raise ValidationError("Brain is not initialized; run setup --apply first")
+            service = BrainController(root).goals
+            payload = {}
+            if args.input:
+                payload = json.loads(Path(args.input).read_text(encoding="utf-8"))
+                if not isinstance(payload, dict):
+                    raise ValidationError("Goal --input must contain a JSON object")
+            evidence = [EvidenceRef(**item) for item in payload.get("evidence_refs", [])]
+            if args.action == "create":
+                if not args.operation_id or not args.objective:
+                    raise ValidationError("goal create requires --operation-id and --objective")
+                result = service.create(
+                    args.scope, objective=args.objective, operation_id=args.operation_id,
+                    completion_contract=payload.get("completion_contract"),
+                    criteria=payload.get("criteria"),
+                    budget_policy=payload.get("budget_policy"),
+                    active=not bool(payload.get("draft", False)),
+                    provenance=payload.get("provenance"),
+                    source=AuthorityTier.EXPLICIT_USER, actor="user:cli",
+                ).to_dict()
+            elif args.action in {"status", "show"}:
+                result = service.get(args.scope, args.goal_id) if args.goal_id else {"goals": service.list(args.scope)}
+            elif args.action == "edit":
+                if not args.goal_id or args.expected_version is None or not args.operation_id:
+                    raise ValidationError("goal edit requires --goal-id --expected-version --operation-id")
+                result = service.edit(
+                    args.scope, args.goal_id, expected_version=args.expected_version,
+                    operation_id=args.operation_id, objective=args.objective,
+                    completion_contract=payload.get("completion_contract"),
+                    budget_policy=payload.get("budget_policy"),
+                    source=AuthorityTier.EXPLICIT_USER, actor="user:cli",
+                ).to_dict()
+            elif args.action in {"pause", "resume", "block", "complete", "clear"}:
+                if not args.goal_id or args.expected_version is None or not args.operation_id:
+                    raise ValidationError("goal transition requires --goal-id --expected-version --operation-id")
+                transition_source = (
+                    AuthorityTier.VERIFIED_EVIDENCE
+                    if args.action in {"block", "complete"} and evidence
+                    else AuthorityTier.EXPLICIT_USER
+                )
+                result = service.transition(
+                    args.scope, args.goal_id, expected_version=args.expected_version,
+                    operation_id=args.operation_id, action=args.action, note=args.note,
+                    evidence_refs=evidence, criterion_results=payload.get("criterion_results"),
+                    source=transition_source, actor="user:cli",
+                ).to_dict()
+            elif args.action == "criteria-add":
+                if not args.goal_id or args.expected_version is None or not args.operation_id:
+                    raise ValidationError("criteria-add requires --goal-id --expected-version --operation-id")
+                criterion = payload.get("criterion", args.criterion)
+                if criterion is None:
+                    raise ValidationError("criteria-add requires --criterion or input criterion")
+                result = service.criteria_add(
+                    args.scope, args.goal_id, expected_version=args.expected_version,
+                    operation_id=args.operation_id, criterion=criterion,
+                    source=AuthorityTier.EXPLICIT_USER, actor="user:cli",
+                ).to_dict()
+            elif args.action == "criteria-remove":
+                if not args.goal_id or args.expected_version is None or not args.operation_id or not args.criterion_id:
+                    raise ValidationError("criteria-remove requires --goal-id --expected-version --operation-id --criterion-id")
+                result = service.criteria_remove(
+                    args.scope, args.goal_id, expected_version=args.expected_version,
+                    operation_id=args.operation_id, criterion_id=args.criterion_id,
+                    source=AuthorityTier.EXPLICIT_USER, actor="user:cli",
+                ).to_dict()
+            elif args.action == "criteria-clear":
+                if not args.goal_id or args.expected_version is None or not args.operation_id:
+                    raise ValidationError("criteria-clear requires --goal-id --expected-version --operation-id")
+                result = service.criteria_clear(
+                    args.scope, args.goal_id, expected_version=args.expected_version,
+                    operation_id=args.operation_id,
+                    source=AuthorityTier.EXPLICIT_USER, actor="user:cli",
+                ).to_dict()
+            elif args.action == "evaluate":
+                if not args.goal_id or args.expected_version is None:
+                    raise ValidationError("goal evaluate requires --goal-id --expected-version")
+                result = service.evaluate(
+                    args.scope, args.goal_id, expected_version=args.expected_version,
+                    evidence_refs=evidence, criterion_results=payload.get("criterion_results"), wait_hint=payload.get("wait_hint"),
+                ).to_dict()
+            elif args.action == "progress":
+                if not args.goal_id or args.expected_version is None or not args.operation_id or not args.progress_token:
+                    raise ValidationError("goal progress requires --goal-id --expected-version --operation-id --progress-token")
+                result = service.record_progress(
+                    args.scope, args.goal_id, expected_version=args.expected_version,
+                    operation_id=args.operation_id, progress_token=args.progress_token,
+                    evidence_refs=evidence, tokens_used=args.tokens_used, cost_used=args.cost_used,
+                ).to_dict()
+            else:
+                if not args.goal_id:
+                    raise ValidationError("goal continuation requires --goal-id")
+                result = service.continuation_contract(args.scope, args.goal_id)
+            _print(result)
+            return 0
+
+        if args.command == "strategy-rollback":
+            root = str(Path(args.root).resolve())
+            if read_installation_marker(root) is None:
+                raise ValidationError("Brain is not initialized; run setup --apply first")
+            controller = BrainController(root)
+            current = controller.store.load("strategy_rule", args.scope, args.strategy_id)
+            previous_id = current.payload.get("previous_revision_ref")
+            if not previous_id:
+                raise ValidationError("strategy has no known-good previous revision")
+            previous = controller.store.load("strategy_rule", args.scope, str(previous_id))
+            if not args.apply:
+                _print({
+                    "ok": True, "dry_run": True, "current_strategy_id": current.id,
+                    "current_status": current.status, "restored_strategy_id": previous.id,
+                    "restored_status": previous.status,
+                })
+                return 0
+            result = controller.strategy_revisions.rollback(
+                args.scope, args.strategy_id, source=AuthorityTier.EXPLICIT_USER, actor="user:cli"
+            )
+            _print({"ok": True, "dry_run": False, "restoration": result.to_dict()})
+            return 0
+
         if args.command == "init":
             root = str(Path(args.root))
             if args.apply:
@@ -340,9 +572,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             return 0 if result.ok else 5
 
         if args.command == "doctor":
-            report = run_doctor(str(Path(args.root)))
-            _print(report.to_dict())
-            return 0 if report.ok else 2
+            report = lifecycle_doctor(str(Path(args.root)))
+            _print(report)
+            return 0 if report["ok"] else 2
 
         if args.command == "migrate":
             root = str(Path(args.root))

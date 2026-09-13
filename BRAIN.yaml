@@ -2,7 +2,7 @@ schema_version: "0.1"
 architecture: intent-cognition-initiative-learning
 package:
   name: AI-Verse Brain
-  version: "0.1.0-beta.1"
+  version: "0.1.0-beta.2"
   status: public-beta-release-candidate
   python: ">=3.9"
 
@@ -74,9 +74,11 @@ canonical_kinds:
   - opportunity
   - initiative
   - objective
+  - goal
   - model_belief
   - evaluation
   - learning
+  - learning_candidate
   - strategy_rule
   - policy
 
@@ -136,6 +138,14 @@ implemented_mechanisms:
   - portable_cadence_hooks
   - explicit_migration_planner
   - clean_install_smoke_testing
+  - standard_public_beta_lifecycle
+  - standalone_to_native_adoption
+  - canonical_goal_owner_api
+  - deterministic_goal_evaluation
+  - goal_operation_idempotency_and_version_checks
+  - owner_routed_improvement_candidates
+  - known_good_strategy_revision_restoration
+  - truthful_layered_readiness
 
 non_ownership:
   - workspace_identity

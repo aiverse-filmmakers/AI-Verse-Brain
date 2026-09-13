@@ -15,12 +15,16 @@ from .effective_policy import (
 from .errors import PolicyViolation, ValidationError
 from .evaluator import EvaluationService
 from .freshness import FreshnessService
+from .goal import GoalService
+from .improvement import ImprovementCandidateService
 from .learning import LearningService, assert_learning_transition, assert_strategy_activation
 from .models import BrainObject, EvidenceRef, Scope
+from .owner_write import route_durable_write
 from .policy import BrainPolicy
 from .progress import ProgressTracker
 from .state_machine import assert_creation, assert_transition
 from .storage import ObjectStore, StorageLayout
+from .strategy_revision import StrategyRevisionService
 
 
 @dataclass
@@ -51,11 +55,19 @@ class BrainController:
         self.evaluator = EvaluationService(self)
         self.freshness = FreshnessService(self)
         self.learning = LearningService(self)
+        self.goals = GoalService(self)
+        self.improvements = ImprovementCandidateService(self)
+        self.strategy_revisions = StrategyRevisionService(self)
 
     def refresh_policy(self, scope: str = "operator") -> BrainPolicy:
         """Reload the persisted policy for ``scope`` and re-apply only tightening caller overrides."""
         self.policy = load_effective_policy(self.store, scope, caller_override=self._caller_policy)
         return self.policy
+
+    def route_durable_write(self, host: Any, classification: str, payload: Dict[str, Any], scope: str):
+        """Route non-Brain durable state through the selected canonical-owner host boundary."""
+        Scope(scope)
+        return route_durable_write(host, classification, payload, scope)
 
     def direction_owner(self, scope: str) -> str:
         from .direction_ownership import direction_owner_for

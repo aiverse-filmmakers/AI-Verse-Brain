@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Brain improvement candidate",
+  "type": "object",
+  "required": ["candidate_id", "scope", "suggested_owner", "kind", "summary", "evidence_refs", "risk", "confidence", "created_at"],
+  "properties": {
+    "candidate_id": {"type": "string", "minLength": 1},
+    "scope": {"type": "string", "minLength": 1},
+    "suggested_owner": {"enum": ["skills", "memory", "data", "brain", "os", "automation", "bot", "none"]},
+    "kind": {"enum": ["create", "repair", "consolidate", "archive-review", "memory"]},
+    "summary": {"type": "string", "minLength": 1},
+    "target_skill_id": {"type": ["string", "null"]},
+    "target_generation": {"type": ["string", "null"]},
+    "target_digest": {"type": ["string", "null"]},
+    "evidence_refs": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+    "success_signal": {"type": "array", "items": {"type": "string"}},
+    "failure_signal": {"type": "array", "items": {"type": "string"}},
+    "risk": {"enum": ["low", "medium", "high"]},
+    "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+    "evaluation_criteria": {"type": "array", "items": {"type": "string"}},
+    "requested_operation": {"type": "string"},
+    "created_at": {"type": "string", "format": "date-time"}
+  },
+  "additionalProperties": true
+}

@@ -4,7 +4,7 @@
 
 AI-Verse Brain gives capable agents a durable direction-and-control layer without turning the model into the source of authority. It can run standalone and can integrate with AI-Verse OS and AI-Verse Memory while remaining a separate repository and responsibility boundary.
 
-> Status: **public beta release candidate `0.1.0-beta.1`**.
+> Status: **public beta release candidate `0.1.0-beta.2`**.
 
 ## What Brain owns
 
@@ -34,7 +34,12 @@ Brain implements:
 - a model-neutral cognition pipeline;
 - a hardened universal JSON subprocess bridge;
 - reasoner-only Claude Code, Codex CLI and Hermes Agent wrappers;
-- safe initialization, onboarding, migration planning and health checks.
+- standard public-beta lifecycle: install, setup, status, doctor, enable/disable, update and uninstall;
+- safe standalone-to-native adoption without automatic strategic handover;
+- Brain-owned persistent Goals with optimistic concurrency, idempotent operations, evidence-gated completion and bounded continuation contracts;
+- owner-routed self-learning improvement candidates without direct mutation of Skills, Memory or other sibling-owned stores;
+- known-good strategy revision restoration for rollback;
+- safe onboarding, migration planning and layered readiness checks.
 
 The central rule is:
 
@@ -44,17 +49,19 @@ The central rule is:
 
 Python 3.9+ is required.
 
-For the beta tag:
+For reproducible public-beta installs, use the exact 40-character Git revision recorded for the release artifact:
 
 ```bash
-python -m pip install "git+https://github.com/aiverse-filmmakers/AI-Verse-Brain.git@v0.1.0-beta.1"
+python -m pip install "git+https://github.com/aiverse-filmmakers/AI-Verse-Brain.git@<exact-beta-2-revision>"
 ```
 
 Or with `pipx`:
 
 ```bash
-pipx install "git+https://github.com/aiverse-filmmakers/AI-Verse-Brain.git@v0.1.0-beta.1"
+pipx install "git+https://github.com/aiverse-filmmakers/AI-Verse-Brain.git@<exact-beta-2-revision>"
 ```
+
+Do not rely on a moving branch name for a release install. A GitHub tag/prerelease may later point at the same immutable revision.
 
 During development from a checkout:
 
@@ -62,19 +69,21 @@ During development from a checkout:
 python -m pip install -e .
 ```
 
-## Initialize safely
+## Public lifecycle and safe setup
 
-Brain is dry-run-first. Inspect what it would create:
-
-```bash
-ai-verse-brain init /path/to/agent/root
-```
-
-No state is written by that command. Apply only after review:
+Brain is dry-run-first. The standard public lifecycle is:
 
 ```bash
-ai-verse-brain init /path/to/agent/root --apply
+ai-verse-brain install /path/to/agent/root --json
+ai-verse-brain setup /path/to/agent/root --json
+ai-verse-brain setup /path/to/agent/root --apply --json
+ai-verse-brain status /path/to/agent/root --json
+ai-verse-brain doctor /path/to/agent/root --json
 ```
+
+No state is written by that command. The dry-run `setup` command is inspection-only. `setup --apply` attaches and initializes Brain where appropriate, but it never silently transfers strategic direction to Brain.
+
+The legacy `init` command remains available for compatibility, but `setup` is the public-beta lifecycle surface.
 
 Standalone mode owns only Brain paths under `.ai-verse-brain/`.
 
@@ -86,17 +95,19 @@ workspaces/<id>/brain/
 runtime/ai-verse-brain/
 ```
 
-On a compatible AI-Verse OS v2 host, `init --apply` first attaches Brain through the local `.aiverse/extensions/registry.json` contract and then creates Brain-owned state. It does not edit tracked `AI-VERSE.yaml`, `AGENTS.md`, or capability registries. An incompatible host still fails closed instead of creating a competing standalone store.
+On a compatible AI-Verse OS v2 host, `setup --apply` attaches Brain through the local `.aiverse/extensions/registry.json` contract and creates or safely adopts Brain-owned state. A prior standalone `.ai-verse-brain` installation is transactionally adopted into native `operator/brain/` state, with the old writable authority retired only after verification. It does not edit tracked `AI-VERSE.yaml`, `AGENTS.md`, or capability registries. An incompatible host still fails closed instead of creating a competing standalone store.
 
 ## Native attachment lifecycle
 
 On a compatible AI-Verse OS, attachment is local and dry-run-first:
 
 ```bash
-ai-verse-brain attach /path/to/AI-Verse-OS
-ai-verse-brain attach /path/to/AI-Verse-OS --apply
+ai-verse-brain setup /path/to/AI-Verse-OS
+ai-verse-brain setup /path/to/AI-Verse-OS --apply
 ai-verse-brain disable /path/to/AI-Verse-OS --apply
-ai-verse-brain detach /path/to/AI-Verse-OS --apply
+ai-verse-brain enable /path/to/AI-Verse-OS --apply
+ai-verse-brain update /path/to/AI-Verse-OS --apply
+ai-verse-brain uninstall /path/to/AI-Verse-OS --apply
 ```
 
 Disable/detach preserve canonical Brain state. They are blocked while Brain owns strategic direction for any scope, so Brain cannot be removed in a way that silently reactivates stale OS strategy.
@@ -143,6 +154,38 @@ Apply explicitly:
 ```bash
 ai-verse-brain onboard /path/to/agent/root --answers brain-onboarding.json --apply
 ```
+
+## Persistent Goals
+
+Brain is the canonical Goal owner. Gateway/host owns continuation execution, Automations owns future wake/scheduling, and Multiple Bots owns delegated task coordination.
+
+The stable Brain owner surface is equivalent to:
+
+```text
+goal.get(scope/context)
+goal.create(request)
+goal.edit(goal_id, expected_version, request)
+goal.transition(goal_id, expected_version, action, note)
+goal.criteria.add/remove/clear(...)
+goal.evaluate(goal_id, expected_version, evidence)
+```
+
+The CLI exposes the same Brain-owned state for direct testing and operator control:
+
+```bash
+ai-verse-brain goal . create --scope operator --objective "Ship verified beta" --operation-id create-1
+ai-verse-brain goal . status --scope operator
+ai-verse-brain goal . pause --scope operator --goal-id <id> --expected-version <n> --operation-id pause-1
+ai-verse-brain goal . resume --scope operator --goal-id <id> --expected-version <n> --operation-id resume-1
+ai-verse-brain goal . evaluate --scope operator --goal-id <id> --expected-version <n> --input evidence.json
+ai-verse-brain goal . complete --scope operator --goal-id <id> --expected-version <n> --operation-id complete-1 --input evidence.json
+```
+
+Goal completion cannot be inferred from resource exhaustion. Deterministic verification gates and bound evidence outrank model opinion. Goal state does not grant tools, connections, scheduler authority or permission expansion.
+
+## Self-learning owner boundary
+
+Brain may emit an inspectable improvement candidate containing the suggested owner, operation, evidence references, risk, confidence and evaluation criteria. Brain does not write Skill package bytes, general Memory, Data state or Automation jobs directly. Those durable mutations are routed through the selected host to the canonical owner and require a stable owner receipt.
 
 ## Use Claude, Codex or Hermes as the reasoner
 
@@ -258,7 +301,7 @@ ai-verse-brain doctor .
 ai-verse-brain plan-integration .
 ```
 
-`doctor` is read-only. It checks host compatibility, parallel-store risk, installation/state-schema integrity, scoped Brain state and minimum onboarding readiness.
+`doctor` is read-only. It reports structural, attachment/discovery, runtime, dependency, operational and composed-system layers truthfully. Brain does not claim whole-system readiness when a live Gateway/host, Skills or other owners have not been exercised.
 
 ## Security boundaries
 

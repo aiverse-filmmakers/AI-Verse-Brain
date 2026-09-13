@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from aiverse_brain import __version__
 from aiverse_brain.cadence_hooks import render_cadence_hooks
 from aiverse_brain.installation import initialize
 from aiverse_brain.local_host import ReadOnlyContextHost
@@ -133,7 +134,7 @@ class ReleaseHostCadenceMigrationTests(unittest.TestCase):
             self.assertTrue(plan.needed)
             apply_migration(str(root))
             updated = json.loads(marker.read_text(encoding="utf-8"))
-            self.assertEqual(updated["package_version"], "0.1.0b1")
+            self.assertEqual(updated["package_version"], __version__)
 
     def test_unknown_older_state_schema_fails_closed(self):
         with tempfile.TemporaryDirectory() as temp:

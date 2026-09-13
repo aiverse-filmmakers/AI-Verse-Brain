@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.0-beta.2
+
+Public-beta lifecycle and canonical Goal contract release.
+
+- Added Brain-owned persistent Goal state with version-checked/idempotent create, edit, lifecycle, criteria, progress, evaluation and Gateway continuation contracts.
+- Added standard install/setup/status/doctor/enable/disable/update/uninstall lifecycle surfaces and machine-readable component descriptor.
+- Added safe standalone-to-native Brain adoption without automatic strategic authority handover.
+- Added owner-routed improvement candidate envelopes for Skills/Memory/other canonical owners without direct sibling writes.
+- Added real known-good strategy revision restoration for rollback.
+- Added layered readiness reporting and explicit separation of Brain health from Gateway/system operational readiness.
+
 All notable release-level changes to AI-Verse Brain are documented here.
 
 ## 0.1.0-beta.1
