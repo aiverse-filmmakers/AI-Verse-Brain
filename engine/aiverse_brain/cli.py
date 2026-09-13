@@ -352,7 +352,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                     raise ValidationError("goal evaluate requires --goal-id --expected-version")
                 result = service.evaluate(
                     args.scope, args.goal_id, expected_version=args.expected_version,
-                    evidence_refs=evidence, wait_hint=payload.get("wait_hint"),
+                    evidence_refs=evidence, criterion_results=payload.get("criterion_results"), wait_hint=payload.get("wait_hint"),
                 ).to_dict()
             elif args.action == "progress":
                 if not args.goal_id or args.expected_version is None or not args.operation_id or not args.progress_token:
