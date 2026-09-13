@@ -37,8 +37,9 @@ class DoctorReport:
 
 _KIND_DIR_SCOPE = {
     "intent": "intent", "practices": "practice", "gaps": "gap", "opportunities": "opportunity",
-    "initiatives": "initiative", "objectives": "objective", "models": "model_belief",
-    "evaluations": "evaluation", "learning": "learning", "strategies": "strategy_rule", "policies": "policy",
+    "initiatives": "initiative", "objectives": "objective", "goals": "goal", "models": "model_belief",
+    "evaluations": "evaluation", "learning": "learning", "learning-candidates": "learning_candidate",
+    "strategies": "strategy_rule", "policies": "policy",
 }
 
 
