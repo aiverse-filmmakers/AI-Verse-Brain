@@ -17,8 +17,9 @@ from .validation import validate_object
 
 _KIND_DIR = {
     "intent": "intent", "practice": "practices", "gap": "gaps", "opportunity": "opportunities",
-    "initiative": "initiatives", "objective": "objectives", "model_belief": "models",
-    "evaluation": "evaluations", "learning": "learning", "strategy_rule": "strategies", "policy": "policies",
+    "initiative": "initiatives", "objective": "objectives", "goal": "goals", "model_belief": "models",
+    "evaluation": "evaluations", "learning": "learning", "learning_candidate": "learning-candidates",
+    "strategy_rule": "strategies", "policy": "policies",
 }
 
 
