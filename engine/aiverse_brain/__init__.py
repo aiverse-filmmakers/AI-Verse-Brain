@@ -14,6 +14,8 @@ from .bridge import (
 from .cadence_hooks import render_cadence_hooks
 from .cognition import CognitionProposal, CognitionPurpose, CognitionRequest, validate_proposal
 from .controller import BrainController
+from .goal import GoalMutationResult, GoalService, GoalVerdict
+from .improvement import ImprovementCandidateEnvelope, ImprovementCandidateService
 from .direction_ownership import (
     DirectionHandoverPlan,
     DirectionHandoverResult,
@@ -33,6 +35,9 @@ from .installation import InitPlan, InitResult, initialize, plan_init, read_inst
 from .integration import HostMode, inspect_host, native_path_contract, plan_integration
 from .local_host import ReadOnlyContextHost
 from .migration import MigrationPlan, apply_migration, plan_migration
+from .lifecycle import component_descriptor, lifecycle_doctor, lifecycle_status, setup_component
+from .owner_write import OwnerWriteResult, route_durable_write
+from .strategy_revision import StrategyRestorationResult, StrategyRevisionService
 from .models import BrainObject, EvidenceRef, Scope
 from .onboarding import OnboardingPlan, OnboardingResult, OnboardingService
 from .orchestrator import TickPlanner
@@ -56,6 +61,9 @@ __all__ = [
     "BridgeConfig", "BridgeDescription", "BridgeHostAdapter", "BridgeReasonerAdapter",
     "JSONSubprocessBridge", "adapter_doctor",
     "BrainController", "BrainObject", "EvidenceRef", "Scope",
+    "GoalService", "GoalVerdict", "GoalMutationResult",
+    "ImprovementCandidateEnvelope", "ImprovementCandidateService",
+    "StrategyRevisionService", "StrategyRestorationResult",
     "CognitionProposal", "CognitionPurpose", "CognitionRequest", "validate_proposal",
     "DirectionImportCandidate", "DirectionHandoverPlan", "DirectionHandoverResult",
     "DirectionOwnershipService", "direction_owner_for", "read_direction_ownership_registry",
@@ -71,6 +79,8 @@ __all__ = [
     "BrainRuntime", "SurfaceItem", "TickRunResult",
     "ReadOnlyContextHost",
     "MigrationPlan", "plan_migration", "apply_migration",
+    "component_descriptor", "lifecycle_status", "lifecycle_doctor", "setup_component",
+    "OwnerWriteResult", "route_durable_write",
     "VendorOptions", "vendor_bridge_config", "vendor_reasoner",
     "render_cadence_hooks",
     "__version__",
