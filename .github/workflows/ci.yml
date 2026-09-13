@@ -43,7 +43,11 @@ jobs:
         run: |
           .smoke/bin/ai-verse-brain --help
           mkdir .smoke-root
-          .smoke/bin/ai-verse-brain init .smoke-root --apply
-          .smoke/bin/ai-verse-brain doctor .smoke-root || test $? -eq 2
+          .smoke/bin/ai-verse-brain install .smoke-root --json
+          .smoke/bin/ai-verse-brain setup .smoke-root --json
+          .smoke/bin/ai-verse-brain setup .smoke-root --apply --json
+          .smoke/bin/ai-verse-brain status .smoke-root --json
+          .smoke/bin/ai-verse-brain doctor .smoke-root --json
+          .smoke/bin/ai-verse-brain update .smoke-root --json
           .smoke/bin/ai-verse-brain migrate .smoke-root
           test -f .smoke-root/.ai-verse-brain/installation.json
