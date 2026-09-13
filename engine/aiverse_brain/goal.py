@@ -249,7 +249,12 @@ class GoalService:
     def list(self, scope: str, statuses: Optional[Iterable[str]] = None) -> List[Dict[str, Any]]:
         internal = None
         if statuses is not None:
-            internal = [PUBLIC_TO_INTERNAL[_text(status, "status")] for status in statuses]
+            internal = []
+            for status in statuses:
+                key = _text(status, "status")
+                if key not in PUBLIC_TO_INTERNAL:
+                    raise ValidationError(f"unknown public Goal status: {key}")
+                internal.append(PUBLIC_TO_INTERNAL[key])
         return [self._public(item) for item in self.store.list("goal", scope, internal)]
 
     def create(
@@ -511,16 +516,43 @@ class GoalService:
     def evaluate(
         self, scope: str, goal_id: str, *, expected_version: int,
         evidence_refs: Optional[List[EvidenceRef]] = None,
+        criterion_results: Optional[List[Dict[str, Any]]] = None,
         wait_hint: Optional[Dict[str, Any]] = None,
-        persist: bool = True, actor: str = "brain:evaluator",
+        persist: bool = False, actor: str = "brain:evaluator",
     ) -> GoalVerdict:
         obj = self.store.load("goal", scope, goal_id)
         self._version(obj, expected_version)
         incoming = list(evidence_refs or [])
         evidence = {item.ref: item for item in obj.evidence_refs}
         evidence.update({item.ref: item for item in incoming})
+        results = {}
+        for result in list(criterion_results or []):
+            if not isinstance(result, dict) or not isinstance(result.get("criterion_id"), str):
+                raise ValidationError("criterion_results require criterion_id")
+            status = result.get("status")
+            if status not in {"passed", "failed", "insufficient_evidence", "not_applicable"}:
+                raise ValidationError(f"invalid Goal criterion result status: {status}")
+            refs = result.get("evidence_refs", [])
+            if not isinstance(refs, list) or any(not isinstance(ref, str) or not ref for ref in refs):
+                raise ValidationError("criterion result evidence_refs must be a string array")
+            if status == "passed":
+                if not refs or any(ref not in evidence for ref in refs):
+                    raise ValidationError("passed Goal criterion result requires bound evidence")
+                if all(evidence[ref].evidence_class == "MODEL_INFERENCE" for ref in refs):
+                    raise ValidationError("MODEL_INFERENCE alone cannot pass a Goal criterion")
+            results[result["criterion_id"]] = {"status": status, "evidence_refs": list(refs)}
+        known_ids = {item["id"] for item in obj.payload.get("criteria", [])}
+        unknown = sorted(set(results) - known_ids)
+        if unknown:
+            raise ValidationError("criterion_results contain unknown ids: " + ", ".join(unknown))
+        materialized = []
+        for current in obj.payload.get("criteria", []):
+            item = dict(current)
+            if item["id"] in results:
+                item.update(results[item["id"]])
+            materialized.append(item)
         unmet, used, failed_gates = [], [], []
-        for item in obj.payload.get("criteria", []):
+        for item in materialized:
             refs = list(item.get("evidence_refs", []))
             if item.get("status") not in {"passed", "not_applicable"}:
                 unmet.append(item["id"])
@@ -565,6 +597,7 @@ class GoalService:
             known = {e.ref for e in obj.evidence_refs}
             for item in incoming:
                 if item.ref not in known: obj.evidence_refs.append(item); known.add(item.ref)
+            obj.payload["criteria"] = materialized
             obj.payload["progress"]["last_evaluation"] = {**result.to_dict(), "evaluated_at": utc_now(), "actor": actor}
             obj.updated_by = actor
             self.store.save(obj, expected_revision=expected)
