@@ -55,6 +55,14 @@ _TRANSITIONS: Dict[str, Dict[str, Set[str]]] = {
         "FAILED": {"READY", "CANCELLED", "SUPERSEDED"},
         "PASSED": set(), "CANCELLED": set(), "SUPERSEDED": set(),
     },
+    "goal": {
+        "ACTIVE": {"PAUSED", "BLOCKED", "BUDGET_LIMITED", "USAGE_LIMITED", "COMPLETE", "CLEARED"},
+        "PAUSED": {"ACTIVE", "CLEARED"},
+        "BLOCKED": {"ACTIVE", "PAUSED", "CLEARED"},
+        "BUDGET_LIMITED": {"ACTIVE", "PAUSED", "CLEARED"},
+        "USAGE_LIMITED": {"ACTIVE", "PAUSED", "CLEARED"},
+        "COMPLETE": set(), "CLEARED": set(),
+    },
     "model_belief": {
         "ACTIVE": {"CONTRADICTED", "RETIRED"},
         "CONTRADICTED": {"ACTIVE", "RETIRED"},
@@ -72,6 +80,11 @@ _TRANSITIONS: Dict[str, Dict[str, Set[str]]] = {
         "VALIDATED_LEARNING": {"STRATEGY_CANDIDATE"},
         "STRATEGY_CANDIDATE": {"PROMOTED", "REJECTED"},
         "PROMOTED": set(), "REJECTED": set(),
+    },
+    "learning_candidate": {
+        "CANDIDATE": {"ROUTED", "RETIRED"},
+        "ROUTED": {"RETIRED"},
+        "RETIRED": set(),
     },
     "strategy_rule": {
         "CANDIDATE": {"ACTIVE", "REJECTED"},
@@ -92,9 +105,11 @@ _INITIAL = {
     "opportunity": {"DETECTED"},
     "initiative": {"DISCOVERED"},
     "objective": {"QUEUED"},
+    "goal": {"ACTIVE", "PAUSED"},
     "model_belief": {"ACTIVE"},
     "evaluation": {"RECORDED"},
     "learning": {"OBSERVATION"},
+    "learning_candidate": {"CANDIDATE"},
     "strategy_rule": {"CANDIDATE"},
     "policy": {"ACTIVE"},
 }
