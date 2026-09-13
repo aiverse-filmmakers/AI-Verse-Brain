@@ -106,7 +106,10 @@ def lifecycle_status(root: str) -> LifecycleStatus:
             blockers.append(str(exc)); state = "unhealthy"
 
     doctor = run_doctor(str(base))
-    hard_failures = [check.message for check in doctor.checks if check.severity == "FAIL"]
+    hard_failures = [
+        check.message for check in doctor.checks
+        if check.severity == "FAIL" and not (state == "disabled" and check.name == "brain-attachment")
+    ]
     if hard_failures:
         blockers.extend(item for item in hard_failures if item not in blockers); state = "unhealthy"
     if not initialized and state not in {"unhealthy", "disabled"}:
