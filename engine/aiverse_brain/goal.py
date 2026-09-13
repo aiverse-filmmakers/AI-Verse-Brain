@@ -355,6 +355,7 @@ class GoalService:
         self, scope: str, goal_id: str, *, expected_version: int, operation_id: str,
         action: str, note: Optional[str] = None,
         evidence_refs: Optional[List[EvidenceRef]] = None,
+        criterion_results: Optional[List[Dict[str, Any]]] = None,
         source: AuthorityTier = AuthorityTier.EXPLICIT_USER, actor: str = "user",
     ) -> GoalMutationResult:
         action = str(action).lower()
@@ -368,7 +369,8 @@ class GoalService:
             raise AuthorityError("Goal block requires verified evidence or stronger authority")
         request = {
             "action": action, "scope": scope, "goal_id": goal_id, "expected_version": expected_version,
-            "note": note, "evidence_refs": [e.to_dict() for e in evidence_refs or []], "actor": actor,
+            "note": note, "evidence_refs": [e.to_dict() for e in evidence_refs or []],
+            "criterion_results": list(criterion_results or []), "actor": actor,
         }
         fp, replay = self._begin(scope, operation_id, request)
         if replay: return replay
@@ -391,9 +393,29 @@ class GoalService:
             if action == "complete":
                 if source > AuthorityTier.VERIFIED_EVIDENCE:
                     raise AuthorityError("Goal completion requires verified evidence or explicit user authority")
-                verdict = self.evaluate(scope, goal_id, expected_version=expected_version, evidence_refs=new_evidence, persist=False)
+                verdict = self.evaluate(
+                    scope, goal_id, expected_version=expected_version,
+                    evidence_refs=new_evidence, criterion_results=criterion_results,
+                )
                 if verdict.verdict != "complete":
                     raise ValidationError("Goal completion rejected: " + verdict.reason)
+                results = {
+                    item["criterion_id"]: item for item in list(criterion_results or [])
+                    if isinstance(item, dict) and isinstance(item.get("criterion_id"), str)
+                }
+                if results:
+                    materialized = []
+                    for current in obj.payload.get("criteria", []):
+                        item = dict(current)
+                        result_item = results.get(item["id"])
+                        if result_item is not None:
+                            item["status"] = result_item["status"]
+                            item["evidence_refs"] = list(result_item.get("evidence_refs", []))
+                        materialized.append(item)
+                    obj.payload["criteria"] = materialized
+                obj.payload["progress"]["last_evaluation"] = {
+                    **verdict.to_dict(), "evaluated_at": utc_now(), "actor": actor,
+                }
             known = {item.ref for item in obj.evidence_refs}
             for item in new_evidence:
                 if item.ref not in known:
@@ -518,7 +540,7 @@ class GoalService:
         evidence_refs: Optional[List[EvidenceRef]] = None,
         criterion_results: Optional[List[Dict[str, Any]]] = None,
         wait_hint: Optional[Dict[str, Any]] = None,
-        persist: bool = False, actor: str = "brain:evaluator",
+        actor: str = "brain:evaluator",
     ) -> GoalVerdict:
         obj = self.store.load("goal", scope, goal_id)
         self._version(obj, expected_version)
@@ -592,15 +614,6 @@ class GoalService:
             unmet + [f"gate:{item}" for item in failed_gates],
             dict(wait_hint) if wait_hint else None,
         )
-        if persist and obj.status not in TERMINAL:
-            expected = obj.revision
-            known = {e.ref for e in obj.evidence_refs}
-            for item in incoming:
-                if item.ref not in known: obj.evidence_refs.append(item); known.add(item.ref)
-            obj.payload["criteria"] = materialized
-            obj.payload["progress"]["last_evaluation"] = {**result.to_dict(), "evaluated_at": utc_now(), "actor": actor}
-            obj.updated_by = actor
-            self.store.save(obj, expected_revision=expected)
         return result
 
     def continuation_contract(self, scope: str, goal_id: str) -> Dict[str, Any]:
