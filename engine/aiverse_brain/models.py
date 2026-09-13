@@ -10,8 +10,8 @@ from .errors import ScopeError, ValidationError
 
 _SCOPE_RE = re.compile(r"^(operator|workspace:[a-z0-9][a-z0-9-]{0,127})$")
 _KINDS = {
-    "intent", "practice", "gap", "opportunity", "initiative", "objective",
-    "model_belief", "evaluation", "learning", "strategy_rule", "policy",
+    "intent", "practice", "gap", "opportunity", "initiative", "objective", "goal",
+    "model_belief", "evaluation", "learning", "learning_candidate", "strategy_rule", "policy",
 }
 EVIDENCE_CLASSES = {
     "USER_CONFIRMATION", "CANONICAL_STATE", "DIRECT_MEASUREMENT",
