@@ -117,20 +117,18 @@ class GoalContractTests(unittest.TestCase):
                     "operator", created["goal_id"], expected_version=created["version"],
                     evidence_refs=[weak],
                     criterion_results=[{"criterion_id": "c1", "status": "passed", "evidence_refs": ["weak"]}],
-                    persist=True,
                 )
             evidence = [direct("criterion:ok"), direct("gate:ok")]
+            criterion_results = [{"criterion_id": "c1", "status": "passed", "evidence_refs": ["criterion:ok"]}]
             verdict = service.evaluate(
                 "operator", created["goal_id"], expected_version=created["version"],
-                evidence_refs=evidence,
-                criterion_results=[{"criterion_id": "c1", "status": "passed", "evidence_refs": ["criterion:ok"]}],
-                persist=True,
+                evidence_refs=evidence, criterion_results=criterion_results,
             )
             self.assertEqual(verdict.verdict, "complete")
-            current = service.get("operator", created["goal_id"])
             completed = service.transition(
-                "operator", created["goal_id"], expected_version=current["version"],
+                "operator", created["goal_id"], expected_version=created["version"],
                 operation_id="complete", action="complete",
+                evidence_refs=evidence, criterion_results=criterion_results,
                 source=AuthorityTier.VERIFIED_EVIDENCE,
             ).goal
             self.assertEqual(completed["status"], "complete")
