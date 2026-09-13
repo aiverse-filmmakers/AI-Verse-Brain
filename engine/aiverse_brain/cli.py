@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Optional, Sequence
 from uuid import uuid4
 
+from .authority import AuthorityTier
 from .bridge import BridgeConfig, adapter_doctor
 from .cadence import Trigger
 from .cadence_hooks import effective_cadence_policy, render_cadence_hooks
@@ -19,7 +20,11 @@ from .host_selection import HostSelection, select_host
 from .installation import initialize, plan_init, read_installation_marker
 from .integration import HostMode, inspect_host, plan_integration
 from .migration import apply_migration, plan_migration
-from .models import Scope
+from .lifecycle import (
+    component_descriptor, disable_component, enable_component, lifecycle_doctor,
+    lifecycle_status, setup_component, uninstall_component, update_component,
+)
+from .models import EvidenceRef, Scope
 from .onboarding import OnboardingService
 from .runtime import BrainRuntime
 from .tick_output import build_tick_summary
@@ -33,6 +38,39 @@ def build_parser() -> argparse.ArgumentParser:
     init = sub.add_parser("init", help="plan or initialize Brain-owned state without modifying host-owned canonical files")
     init.add_argument("root", nargs="?", default=".")
     init.add_argument("--apply", action="store_true", help="apply the safe initialization plan; default is dry-run")
+    init.add_argument("--json", action="store_true", help="emit stable structured JSON")
+
+    install_cmd = sub.add_parser("install", help="report the installed Brain package and machine-readable install contract")
+    install_cmd.add_argument("root", nargs="?", default=".")
+    install_cmd.add_argument("--json", action="store_true", help="emit stable structured JSON")
+
+    setup_cmd = sub.add_parser("setup", help="attach/adopt/initialize Brain without strategic authority handover")
+    setup_cmd.add_argument("root", nargs="?", default=".")
+    setup_cmd.add_argument("--apply", action="store_true", help="apply the setup plan; default is dry-run")
+    setup_cmd.add_argument("--json", action="store_true", help="emit stable structured JSON")
+
+    status_cmd = sub.add_parser("status", help="fast non-destructive public lifecycle status")
+    status_cmd.add_argument("root", nargs="?", default=".")
+    status_cmd.add_argument("--json", action="store_true", help="emit stable structured JSON")
+
+    enable_cmd = sub.add_parser("enable", help="re-enable an attached native Brain")
+    enable_cmd.add_argument("root", nargs="?", default=".")
+    enable_cmd.add_argument("--apply", action="store_true", help="apply enablement; default is dry-run")
+    enable_cmd.add_argument("--json", action="store_true", help="emit stable structured JSON")
+
+    update_cmd = sub.add_parser("update", help="reconcile Brain package/state metadata after software update")
+    update_cmd.add_argument("root", nargs="?", default=".")
+    update_cmd.add_argument("--apply", action="store_true", help="apply safe state/metadata update; default is dry-run")
+    update_cmd.add_argument("--json", action="store_true", help="emit stable structured JSON")
+
+    uninstall_cmd = sub.add_parser("uninstall", help="remove Brain integration while preserving canonical state by default")
+    uninstall_cmd.add_argument("root", nargs="?", default=".")
+    uninstall_cmd.add_argument("--apply", action="store_true", help="detach integration; default is dry-run")
+    uninstall_cmd.add_argument("--json", action="store_true", help="emit stable structured JSON")
+
+    descriptor_cmd = sub.add_parser("descriptor", help="machine-readable component lifecycle descriptor")
+    descriptor_cmd.add_argument("root", nargs="?", default=".")
+    descriptor_cmd.add_argument("--json", action="store_true", help="emit stable structured JSON")
 
     attach = sub.add_parser("attach", help="attach Brain to a compatible AI-Verse OS through the local extension registry")
     attach.add_argument("root", nargs="?", default=".")
@@ -41,6 +79,7 @@ def build_parser() -> argparse.ArgumentParser:
     disable = sub.add_parser("disable", help="disable an attached native Brain without deleting Brain state")
     disable.add_argument("root", nargs="?", default=".")
     disable.add_argument("--apply", action="store_true", help="disable the local attachment; default is dry-run")
+    disable.add_argument("--json", action="store_true", help="emit stable structured JSON")
 
     detach = sub.add_parser("detach", help="remove Brain's local OS attachment while preserving Brain state")
     detach.add_argument("root", nargs="?", default=".")
@@ -104,6 +143,27 @@ def build_parser() -> argparse.ArgumentParser:
 
     doctor = sub.add_parser("doctor", help="read-only host, installation, and Brain-state health checks")
     doctor.add_argument("root", nargs="?", default=".")
+    doctor.add_argument("--json", action="store_true", help="emit stable structured JSON")
+
+    goal = sub.add_parser("goal", help="Brain-owned canonical Goal API for Gateway/operators")
+    goal.add_argument("root", nargs="?", default=".")
+    goal.add_argument("action", choices=[
+        "create", "status", "show", "edit", "pause", "resume", "block", "complete", "clear",
+        "criteria-add", "criteria-remove", "criteria-clear", "evaluate", "progress", "continuation",
+    ])
+    goal.add_argument("--scope", default="operator")
+    goal.add_argument("--goal-id")
+    goal.add_argument("--objective")
+    goal.add_argument("--expected-version", type=int)
+    goal.add_argument("--operation-id")
+    goal.add_argument("--note")
+    goal.add_argument("--criterion")
+    goal.add_argument("--criterion-id")
+    goal.add_argument("--progress-token")
+    goal.add_argument("--tokens-used", type=int, default=0)
+    goal.add_argument("--cost-used", type=float, default=0.0)
+    goal.add_argument("--input", help="optional JSON file containing completion_contract/criteria/budget/evidence")
+    goal.add_argument("--json", action="store_true", help="emit stable structured JSON")
 
     migrate = sub.add_parser("migrate", help="plan or apply explicit non-destructive Brain state migration")
     migrate.add_argument("root", nargs="?", default=".")
