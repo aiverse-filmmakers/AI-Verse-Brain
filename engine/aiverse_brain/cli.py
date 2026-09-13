@@ -228,6 +228,147 @@ def _require_native_host(root: str) -> None:
 def main(argv: Optional[Sequence[str]] = None) -> int:
     args = build_parser().parse_args(argv)
     try:
+        if args.command == "install":
+            root = str(Path(args.root).resolve())
+            _print({
+                "ok": True,
+                "state": "installed",
+                "note": "The ai-verse-brain package is already available because this command is running.",
+                "descriptor": component_descriptor(root),
+            })
+            return 0
+
+        if args.command == "setup":
+            result = setup_component(str(Path(args.root)), apply=args.apply)
+            _print(result)
+            return 0 if result.get("ok", False) else 3
+
+        if args.command == "status":
+            result = lifecycle_status(str(Path(args.root))).to_dict()
+            _print(result)
+            return 0 if result["state"] not in {"unhealthy"} else 2
+
+        if args.command == "descriptor":
+            _print(component_descriptor(str(Path(args.root))))
+            return 0
+
+        if args.command == "enable":
+            result = enable_component(str(Path(args.root)), apply=args.apply)
+            _print(result)
+            return 0 if result.get("ok", False) else 3
+
+        if args.command == "disable":
+            result = disable_component(str(Path(args.root)), apply=args.apply)
+            _print(result)
+            return 0 if result.get("ok", False) else 3
+
+        if args.command == "update":
+            result = update_component(str(Path(args.root)), apply=args.apply)
+            _print(result)
+            return 0 if result.get("ok", False) else 3
+
+        if args.command == "uninstall":
+            result = uninstall_component(str(Path(args.root)), apply=args.apply)
+            _print(result)
+            return 0 if result.get("ok", False) else 3
+
+        if args.command == "goal":
+            root = str(Path(args.root).resolve())
+            if read_installation_marker(root) is None:
+                raise ValidationError("Brain is not initialized; run setup --apply first")
+            service = BrainController(root).goals
+            payload = {}
+            if args.input:
+                payload = json.loads(Path(args.input).read_text(encoding="utf-8"))
+                if not isinstance(payload, dict):
+                    raise ValidationError("Goal --input must contain a JSON object")
+            evidence = [EvidenceRef(**item) for item in payload.get("evidence_refs", [])]
+            if args.action == "create":
+                if not args.operation_id or not args.objective:
+                    raise ValidationError("goal create requires --operation-id and --objective")
+                result = service.create(
+                    args.scope, objective=args.objective, operation_id=args.operation_id,
+                    completion_contract=payload.get("completion_contract"),
+                    criteria=payload.get("criteria"),
+                    budget_policy=payload.get("budget_policy"),
+                    active=not bool(payload.get("draft", False)),
+                    provenance=payload.get("provenance"),
+                    source=AuthorityTier.EXPLICIT_USER, actor="user:cli",
+                ).to_dict()
+            elif args.action in {"status", "show"}:
+                result = service.get(args.scope, args.goal_id) if args.goal_id else {"goals": service.list(args.scope)}
+            elif args.action == "edit":
+                if not args.goal_id or args.expected_version is None or not args.operation_id:
+                    raise ValidationError("goal edit requires --goal-id --expected-version --operation-id")
+                result = service.edit(
+                    args.scope, args.goal_id, expected_version=args.expected_version,
+                    operation_id=args.operation_id, objective=args.objective,
+                    completion_contract=payload.get("completion_contract"),
+                    budget_policy=payload.get("budget_policy"),
+                    source=AuthorityTier.EXPLICIT_USER, actor="user:cli",
+                ).to_dict()
+            elif args.action in {"pause", "resume", "block", "complete", "clear"}:
+                if not args.goal_id or args.expected_version is None or not args.operation_id:
+                    raise ValidationError("goal transition requires --goal-id --expected-version --operation-id")
+                transition_source = (
+                    AuthorityTier.VERIFIED_EVIDENCE
+                    if args.action in {"block", "complete"} and evidence
+                    else AuthorityTier.EXPLICIT_USER
+                )
+                result = service.transition(
+                    args.scope, args.goal_id, expected_version=args.expected_version,
+                    operation_id=args.operation_id, action=args.action, note=args.note,
+                    evidence_refs=evidence, source=transition_source, actor="user:cli",
+                ).to_dict()
+            elif args.action == "criteria-add":
+                if not args.goal_id or args.expected_version is None or not args.operation_id:
+                    raise ValidationError("criteria-add requires --goal-id --expected-version --operation-id")
+                criterion = payload.get("criterion", args.criterion)
+                if criterion is None:
+                    raise ValidationError("criteria-add requires --criterion or input criterion")
+                result = service.criteria_add(
+                    args.scope, args.goal_id, expected_version=args.expected_version,
+                    operation_id=args.operation_id, criterion=criterion,
+                    source=AuthorityTier.EXPLICIT_USER, actor="user:cli",
+                ).to_dict()
+            elif args.action == "criteria-remove":
+                if not args.goal_id or args.expected_version is None or not args.operation_id or not args.criterion_id:
+                    raise ValidationError("criteria-remove requires --goal-id --expected-version --operation-id --criterion-id")
+                result = service.criteria_remove(
+                    args.scope, args.goal_id, expected_version=args.expected_version,
+                    operation_id=args.operation_id, criterion_id=args.criterion_id,
+                    source=AuthorityTier.EXPLICIT_USER, actor="user:cli",
+                ).to_dict()
+            elif args.action == "criteria-clear":
+                if not args.goal_id or args.expected_version is None or not args.operation_id:
+                    raise ValidationError("criteria-clear requires --goal-id --expected-version --operation-id")
+                result = service.criteria_clear(
+                    args.scope, args.goal_id, expected_version=args.expected_version,
+                    operation_id=args.operation_id,
+                    source=AuthorityTier.EXPLICIT_USER, actor="user:cli",
+                ).to_dict()
+            elif args.action == "evaluate":
+                if not args.goal_id or args.expected_version is None:
+                    raise ValidationError("goal evaluate requires --goal-id --expected-version")
+                result = service.evaluate(
+                    args.scope, args.goal_id, expected_version=args.expected_version,
+                    evidence_refs=evidence, wait_hint=payload.get("wait_hint"),
+                ).to_dict()
+            elif args.action == "progress":
+                if not args.goal_id or args.expected_version is None or not args.operation_id or not args.progress_token:
+                    raise ValidationError("goal progress requires --goal-id --expected-version --operation-id --progress-token")
+                result = service.record_progress(
+                    args.scope, args.goal_id, expected_version=args.expected_version,
+                    operation_id=args.operation_id, progress_token=args.progress_token,
+                    evidence_refs=evidence, tokens_used=args.tokens_used, cost_used=args.cost_used,
+                ).to_dict()
+            else:
+                if not args.goal_id:
+                    raise ValidationError("goal continuation requires --goal-id")
+                result = service.continuation_contract(args.scope, args.goal_id)
+            _print(result)
+            return 0
+
         if args.command == "init":
             root = str(Path(args.root))
             if args.apply:
@@ -400,9 +541,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             return 0 if result.ok else 5
 
         if args.command == "doctor":
-            report = run_doctor(str(Path(args.root)))
-            _print(report.to_dict())
-            return 0 if report.ok else 2
+            report = lifecycle_doctor(str(Path(args.root)))
+            _print(report)
+            return 0 if report["ok"] else 2
 
         if args.command == "migrate":
             root = str(Path(args.root))
