@@ -10,6 +10,8 @@ from typing import Any, Dict, List, Tuple
 from ._version import INSTALLATION_SCHEMA_VERSION, STATE_SCHEMA_VERSION, __version__
 from .errors import ValidationError
 from .installation import installation_marker_path
+from .extension_registry import brain_attachment
+from .integration import HostMode, inspect_host
 from .write_gate import require_write_ready
 
 
@@ -134,9 +136,24 @@ def _atomic_marker_write(path: Path, data: Dict[str, Any]) -> None:
             os.unlink(temp_name)
 
 
-def apply_migration(root: str) -> MigrationPlan:
-    require_write_ready(root)
+def apply_migration(root: str, *, lifecycle_update: bool = False) -> MigrationPlan:
     plan = plan_migration(root)
+    if lifecycle_update:
+        # Updating package-version metadata is a lifecycle operation, not runtime
+        # authority. It may run while Brain is disabled, but never while detached,
+        # unsupported, incompatible, or when a real state-schema conversion is needed.
+        if plan.state_from != plan.state_to:
+            require_write_ready(root)
+        else:
+            report = inspect_host(root)
+            if report.mode == HostMode.INCOMPATIBLE_AI_VERSE:
+                raise ValidationError("Brain lifecycle update blocked: incompatible AI-Verse host")
+            if report.mode == HostMode.AI_VERSE_OS_V2:
+                attachment = brain_attachment(root)
+                if not isinstance(attachment, dict) or attachment.get("supported") is not True or attachment.get("installed") is not True:
+                    raise ValidationError("Brain lifecycle update requires an attached supported+installed native registration")
+    else:
+        require_write_ready(root)
     if not plan.safe_to_apply:
         raise ValidationError("Brain migration blocked: " + "; ".join(plan.blockers))
     if not plan.needed:
