@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from typing import List, Optional, TYPE_CHECKING
+import re
+from typing import Any, Dict, List, Mapping, Optional, TYPE_CHECKING
 
 from .authority import AuthorityTier, require_user_authority
 from .errors import AuthorityError, ValidationError
-from .models import BrainObject, EvidenceRef
+from .models import BrainObject, EvidenceRef, Scope
 from .policy import BrainPolicy
 
 if TYPE_CHECKING:
@@ -14,6 +15,181 @@ _OBSERVATIONAL_CLASSES = {
     "CANONICAL_STATE", "DIRECT_MEASUREMENT", "AUTHORITATIVE_EXTERNAL",
     "INDEPENDENT_EVALUATION", "CORROBORATED_HISTORY", "SINGLE_OBSERVATION",
 }
+
+_LEARNING_CANDIDATE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{2,199}$")
+_SKILL_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+_SKILLS_ROUTE_KINDS = {"create", "repair"}
+_SKILLS_ROUTE_OWNERS = {"agent_learned", "workspace_local"}
+_SKILLS_ROUTE_FIELDS = {
+    "candidate_id", "scope", "suggested_owner", "kind", "summary", "skill_id",
+    "target_skill_id", "evidence_refs", "success_signal", "failure_signal", "risk",
+    "confidence", "created_at", "requested_capabilities", "requested_dependencies",
+    "requires_connection", "requires_credential", "source_ownership",
+}
+_FORBIDDEN_LEARNING_FIELDS = {
+    "raw_transcript", "credentials", "secrets", "private_key", "raw_tool_output",
+    "permission_grant", "authorization", "approval",
+}
+
+
+def _bounded_string_list(value: Any, label: str, *, required: bool = False) -> List[str]:
+    if value is None:
+        value = []
+    if not isinstance(value, list):
+        raise ValidationError(f"{label} must be a list")
+    if required and not value:
+        raise ValidationError(f"{label} must not be empty")
+    if len(value) > 32:
+        raise ValidationError(f"{label} exceeds 32 entries")
+    result: List[str] = []
+    for item in value:
+        if not isinstance(item, str) or not item.strip() or len(item.strip()) > 500:
+            raise ValidationError(f"{label} entries must be non-empty strings <= 500 characters")
+        text = item.strip()
+        if text not in result:
+            result.append(text)
+    return result
+
+
+def admit_skills_learning_candidate(
+    candidate: Mapping[str, Any],
+    *,
+    bound_scope: str,
+    substantial_task: bool,
+) -> Dict[str, Any]:
+    """Brain-owned deterministic gate for cross-owner reusable-procedure candidates.
+
+    The model/runtime may suggest a candidate. Brain decides whether that bounded
+    suggestion is eligible to be routed to Skills. Skills still owns proposal
+    evaluation, security/admission, immutable promotion and rollback.
+    """
+
+    Scope(bound_scope)
+    if not isinstance(candidate, Mapping):
+        raise ValidationError("learning candidate must be an object")
+    if not substantial_task:
+        return {
+            "state": "ignored",
+            "reason": "task evidence is not substantial enough for a learning review",
+            "suggested_owner": "none",
+        }
+
+    data = dict(candidate)
+    forbidden = sorted(_FORBIDDEN_LEARNING_FIELDS.intersection(data))
+    if forbidden:
+        raise ValidationError("learning candidate contains forbidden raw/authority fields: " + ", ".join(forbidden))
+    extras = sorted(set(data) - _SKILLS_ROUTE_FIELDS)
+    if extras:
+        raise ValidationError("learning candidate contains unsupported fields: " + ", ".join(extras))
+
+    candidate_id = data.get("candidate_id")
+    if not isinstance(candidate_id, str) or not _LEARNING_CANDIDATE_ID.fullmatch(candidate_id):
+        raise ValidationError("candidate_id must be a bounded stable identifier")
+
+    scope = data.get("scope")
+    if scope != bound_scope:
+        raise ValidationError("learning candidate scope must equal the trusted bound scope")
+
+    if data.get("suggested_owner") != "skills":
+        return {
+            "state": "ignored",
+            "reason": f"candidate belongs to {data.get('suggested_owner') or 'another owner'}, not Skills",
+            "suggested_owner": data.get("suggested_owner"),
+        }
+
+    kind = data.get("kind")
+    if kind not in _SKILLS_ROUTE_KINDS:
+        return {
+            "state": "ignored",
+            "reason": f"{kind!r} is not a foreground reusable-procedure route",
+            "suggested_owner": "skills",
+        }
+
+    summary = data.get("summary")
+    if not isinstance(summary, str) or not summary.strip() or len(summary.strip()) > 2000:
+        raise ValidationError("learning candidate summary must be a non-empty string <= 2000 characters")
+
+    risk = data.get("risk")
+    if risk not in {"low", "medium", "high"}:
+        raise ValidationError("learning candidate risk must be low, medium, or high")
+    confidence = data.get("confidence")
+    if not isinstance(confidence, (int, float)) or isinstance(confidence, bool):
+        raise ValidationError("learning candidate confidence must be numeric")
+    confidence = float(confidence)
+    if not 0.0 <= confidence <= 1.0:
+        raise ValidationError("learning candidate confidence must be within 0..1")
+    if confidence < 0.6:
+        return {
+            "state": "ignored",
+            "reason": "candidate confidence is below Brain's routing threshold",
+            "suggested_owner": "skills",
+        }
+
+    evidence_refs = _bounded_string_list(data.get("evidence_refs"), "evidence_refs", required=True)
+    success_signal = _bounded_string_list(data.get("success_signal"), "success_signal")
+    failure_signal = _bounded_string_list(data.get("failure_signal"), "failure_signal")
+    requested_capabilities = _bounded_string_list(data.get("requested_capabilities"), "requested_capabilities")
+    requested_dependencies = _bounded_string_list(data.get("requested_dependencies"), "requested_dependencies")
+
+    source_ownership = data.get("source_ownership", "agent_learned")
+    if source_ownership not in _SKILLS_ROUTE_OWNERS:
+        raise ValidationError("runtime-routed Skills candidates must be agent_learned or workspace_local")
+
+    skill_id = data.get("skill_id")
+    target_skill_id = data.get("target_skill_id")
+    if kind == "create":
+        if not isinstance(skill_id, str) or not _SKILL_ID.fullmatch(skill_id):
+            raise ValidationError("create candidate requires a safe skill_id")
+        if target_skill_id not in {None, ""}:
+            raise ValidationError("create candidate must not name a target_skill_id")
+    else:
+        if not isinstance(target_skill_id, str) or not _SKILL_ID.fullmatch(target_skill_id):
+            raise ValidationError("repair candidate requires a safe target_skill_id")
+        if skill_id not in {None, "", target_skill_id}:
+            raise ValidationError("repair candidate skill_id may only match target_skill_id")
+
+    for flag in ("requires_connection", "requires_credential"):
+        if flag in data and not isinstance(data[flag], bool):
+            raise ValidationError(f"{flag} must be boolean")
+
+    created_at = data.get("created_at")
+    if not isinstance(created_at, str) or not created_at.strip() or len(created_at) > 100:
+        raise ValidationError("learning candidate created_at must be a bounded timestamp string")
+
+    skills_scope: Dict[str, str] = {"aiverse_scope": bound_scope}
+    if source_ownership == "workspace_local":
+        if not bound_scope.startswith("workspace:"):
+            raise ValidationError("workspace_local candidate requires a workspace-bound task")
+        skills_scope = {"workspace_id": bound_scope.split(":", 1)[1]}
+
+    envelope: Dict[str, Any] = {
+        "candidate_id": candidate_id,
+        "scope": skills_scope,
+        "suggested_owner": "skills",
+        "kind": kind,
+        "summary": summary.strip(),
+        "evidence_refs": evidence_refs,
+        "success_signal": success_signal,
+        "failure_signal": failure_signal,
+        "risk": risk,
+        "confidence": confidence,
+        "requested_capabilities": requested_capabilities,
+        "requested_dependencies": requested_dependencies,
+        "requires_connection": bool(data.get("requires_connection", False)),
+        "requires_credential": bool(data.get("requires_credential", False)),
+        "source_ownership": source_ownership,
+    }
+    if kind == "create":
+        envelope["skill_id"] = skill_id
+    else:
+        envelope["target_skill_id"] = target_skill_id
+
+    return {
+        "state": "admitted",
+        "reason": "substantial reusable-procedure candidate passed Brain routing admission",
+        "suggested_owner": "skills",
+        "envelope": envelope,
+    }
 
 
 def assert_learning_transition(obj: BrainObject, target: str, source: AuthorityTier) -> None:
