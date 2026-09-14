@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from typing import Any, Dict, List, Mapping, Optional, TYPE_CHECKING
 
@@ -30,6 +31,189 @@ _FORBIDDEN_LEARNING_FIELDS = {
     "raw_transcript", "credentials", "secrets", "private_key", "raw_tool_output",
     "permission_grant", "authorization", "approval",
 }
+
+_DATA_ROUTE_FIELDS = {
+    "candidate_id", "scope", "suggested_owner", "summary", "evidence_refs",
+    "confidence", "created_at", "repeated_evidence", "current_truth",
+    "structured_operational", "contains_secret", "privacy_ambiguous",
+    "permission_expansion", "destructive", "structure", "match", "record",
+}
+_DATA_SAFE_SLUG = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
+_DATA_SAFE_FIELD = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
+
+
+def _bounded_json(value: Any, label: str, *, max_bytes: int = 65536) -> Any:
+    try:
+        encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    except (TypeError, ValueError) as exc:
+        raise ValidationError(f"{label} must be JSON-serializable") from exc
+    if len(encoded.encode("utf-8")) > max_bytes:
+        raise ValidationError(f"{label} exceeds {max_bytes} bytes")
+    return value
+
+
+def admit_data_structure_candidate(
+    candidate: Mapping[str, Any],
+    *,
+    bound_scope: str,
+    substantial_task: bool,
+) -> Dict[str, Any]:
+    """Brain-owned gate for automatic structured current-truth routing.
+
+    Brain decides only whether a bounded runtime suggestion belongs to Data and
+    is safe to route automatically. Data remains canonical owner for structure,
+    schema, query, record validation, mutation, idempotency and provenance.
+    """
+
+    Scope(bound_scope)
+    if not isinstance(candidate, Mapping):
+        raise ValidationError("Data candidate must be an object")
+    if not substantial_task:
+        return {
+            "state": "ignored",
+            "reason": "task evidence is not substantial enough for automatic Data organization",
+            "suggested_owner": "none",
+        }
+    if not bound_scope.startswith("workspace:"):
+        return {
+            "state": "ignored",
+            "reason": "automatic Data organization requires a workspace-bound scope",
+            "suggested_owner": "data",
+        }
+
+    data = dict(candidate)
+    extras = sorted(set(data) - _DATA_ROUTE_FIELDS)
+    if extras:
+        raise ValidationError("Data candidate contains unsupported fields: " + ", ".join(extras))
+
+    candidate_id = data.get("candidate_id")
+    if not isinstance(candidate_id, str) or not _LEARNING_CANDIDATE_ID.fullmatch(candidate_id):
+        raise ValidationError("Data candidate_id must be a bounded stable identifier")
+    if data.get("scope") != bound_scope:
+        raise ValidationError("Data candidate scope must equal the trusted bound scope")
+    if data.get("suggested_owner") != "data":
+        return {
+            "state": "ignored",
+            "reason": f"candidate belongs to {data.get('suggested_owner') or 'another owner'}, not Data",
+            "suggested_owner": data.get("suggested_owner"),
+        }
+
+    summary = data.get("summary")
+    if not isinstance(summary, str) or not summary.strip() or len(summary.strip()) > 2000:
+        raise ValidationError("Data candidate summary must be a non-empty string <= 2000 characters")
+    confidence = data.get("confidence")
+    if not isinstance(confidence, (int, float)) or isinstance(confidence, bool):
+        raise ValidationError("Data candidate confidence must be numeric")
+    confidence = float(confidence)
+    if not 0.0 <= confidence <= 1.0:
+        raise ValidationError("Data candidate confidence must be within 0..1")
+    if confidence < 0.8:
+        return {
+            "state": "ignored",
+            "reason": "candidate confidence is below Brain's automatic Data routing threshold",
+            "suggested_owner": "data",
+        }
+
+    for required_true in ("repeated_evidence", "current_truth", "structured_operational"):
+        if data.get(required_true) is not True:
+            return {
+                "state": "ignored",
+                "reason": f"{required_true} is required for automatic Data routing",
+                "suggested_owner": "data",
+            }
+    for required_false in ("contains_secret", "privacy_ambiguous", "permission_expansion", "destructive"):
+        if data.get(required_false) is not False:
+            return {
+                "state": "ignored",
+                "reason": f"{required_false} blocks automatic Data routing",
+                "suggested_owner": "data",
+            }
+
+    evidence_refs = _bounded_string_list(data.get("evidence_refs"), "evidence_refs", required=True)
+    if len(evidence_refs) < 2:
+        return {
+            "state": "ignored",
+            "reason": "automatic Data routing requires repeated evidence from at least two trusted refs",
+            "suggested_owner": "data",
+        }
+
+    created_at = data.get("created_at")
+    if not isinstance(created_at, str) or not created_at.strip() or len(created_at) > 100:
+        raise ValidationError("Data candidate created_at must be a bounded timestamp string")
+
+    structure = data.get("structure")
+    if not isinstance(structure, Mapping) or set(structure) != {"space", "schema"}:
+        raise ValidationError("Data candidate structure must contain exactly space and schema")
+    space = structure.get("space")
+    schema = structure.get("schema")
+    if not isinstance(space, Mapping) or not isinstance(schema, Mapping):
+        raise ValidationError("Data candidate space and schema must be objects")
+    if set(space) - {"spaceId", "name", "authority", "description"}:
+        raise ValidationError("Data candidate space contains unsupported fields")
+    if set(schema) - {"spaceId", "entity", "name", "description", "fields", "allowUnknownFields"}:
+        raise ValidationError("Data candidate schema contains unsupported fields")
+    space_id = space.get("spaceId")
+    entity = schema.get("entity")
+    if not isinstance(space_id, str) or not _DATA_SAFE_SLUG.fullmatch(space_id):
+        raise ValidationError("Data candidate spaceId is invalid")
+    if schema.get("spaceId") != space_id:
+        raise ValidationError("Data candidate schema.spaceId must match structure spaceId")
+    if not isinstance(entity, str) or not _DATA_SAFE_SLUG.fullmatch(entity):
+        raise ValidationError("Data candidate entity is invalid")
+    if space.get("authority") != "local_canonical":
+        raise ValidationError("automatic Data structure must use local_canonical authority")
+    fields = schema.get("fields")
+    if not isinstance(fields, Mapping) or not fields or len(fields) > 256:
+        raise ValidationError("Data candidate schema fields must be a non-empty bounded object")
+    if any(not isinstance(name, str) or not _DATA_SAFE_FIELD.fullmatch(name) for name in fields):
+        raise ValidationError("Data candidate schema field names are invalid")
+    _bounded_json(structure, "Data candidate structure")
+
+    match = data.get("match")
+    record = data.get("record")
+    if not isinstance(match, Mapping) or set(match) != {"field", "value"}:
+        raise ValidationError("Data candidate match must contain exactly field and value")
+    match_field = match.get("field")
+    if not isinstance(match_field, str) or match_field not in fields:
+        raise ValidationError("Data candidate match field must exist in the proposed schema")
+    match_value = match.get("value")
+    if match_value is None or isinstance(match_value, (dict, list)):
+        raise ValidationError("Data candidate match value must be a non-null primitive")
+
+    if not isinstance(record, Mapping) or set(record) != {"data"}:
+        raise ValidationError("Data candidate record must contain exactly data")
+    record_data = record.get("data")
+    if not isinstance(record_data, Mapping):
+        raise ValidationError("Data candidate record.data must be an object")
+    if record_data.get(match_field) != match_value:
+        raise ValidationError("Data candidate record.data must carry the exact match value")
+    _bounded_json(record_data, "Data candidate record.data")
+
+    envelope = {
+        "candidate_id": candidate_id,
+        "scope": bound_scope,
+        "summary": summary.strip(),
+        "evidence_refs": evidence_refs,
+        "confidence": confidence,
+        "created_at": created_at,
+        "structure": {
+            "space": dict(space),
+            "schema": dict(schema),
+        },
+        "match": {
+            "field": match_field,
+            "value": match_value,
+        },
+        "record": {
+            "data": dict(record_data),
+        },
+    }
+    return {
+        "state": "admitted",
+        "reason": "repeated structured current truth passed Brain Data routing admission",
+        "suggested_owner": "data",
+        "envelope": envelope,
+    }
 
 
 def _bounded_string_list(value: Any, label: str, *, required: bool = False) -> List[str]:
