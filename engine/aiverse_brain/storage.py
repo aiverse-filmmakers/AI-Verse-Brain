@@ -13,6 +13,7 @@ from uuid import uuid4
 from .errors import LockConflict, RevisionConflict, ScopeError, ValidationError
 from .integration import HostMode, inspect_host
 from .models import BrainObject, Scope, utc_now
+from .path_safety import safe_host_path
 from .validation import validate_object
 
 _KIND_DIR = {
@@ -53,6 +54,12 @@ class StorageLayout:
             raise ScopeError("AI-Verse manifest exists but is incompatible; refusing standalone Brain fallback")
         return cls(root, "standalone")
 
+    def _native_path(self, *parts: str, require_directory: bool = False) -> Path:
+        try:
+            return safe_host_path(self.root, *parts, require_directory=require_directory)
+        except ValidationError as exc:
+            raise ScopeError(str(exc)) from exc
+
     def state_root(self, scope: Scope) -> Path:
         if self.mode == "standalone":
             if not scope.is_operator:
@@ -62,26 +69,23 @@ class StorageLayout:
                 raise ScopeError("standalone Brain state escapes repository root")
             return state
         if scope.is_operator:
-            state = self.root / "operator" / "brain"
-            if state.exists() and not _inside(state, self.root / "operator"):
-                raise ScopeError("operator Brain state escapes operator root")
-            return state
-        workspace_root = self.root / "workspaces"
-        workspace = workspace_root / str(scope.workspace_id)
-        if not workspace.is_dir():
-            raise ScopeError(f"workspace does not exist: {scope.workspace_id}")
-        if not _inside(workspace, workspace_root):
-            raise ScopeError("workspace resolves outside workspaces root")
-        state = workspace / "brain"
-        if state.exists() and not _inside(state, workspace):
-            raise ScopeError("workspace Brain state escapes workspace root")
-        return state
+            return self._native_path("operator", "brain")
+        workspace_id = str(scope.workspace_id)
+        self._native_path("workspaces", workspace_id, require_directory=True)
+        return self._native_path("workspaces", workspace_id, "brain")
+
+    def runtime_path(self, *parts: str) -> Path:
+        if self.mode == "native":
+            return self._native_path("runtime", "ai-verse-brain", *parts)
+        runtime = self.root / ".ai-verse-brain" / "runtime"
+        candidate = runtime.joinpath(*parts)
+        if candidate.exists() and not _inside(candidate, runtime):
+            raise ScopeError("standalone Brain runtime path escapes runtime root")
+        return candidate
 
     @property
     def runtime_dir(self) -> Path:
-        if self.mode == "native":
-            return self.root / "runtime" / "ai-verse-brain"
-        return self.root / ".ai-verse-brain" / "runtime"
+        return self.runtime_path()
 
     def _safe_kind_dir(self, scope: Scope, kind: str) -> Path:
         if kind not in _KIND_DIR:
@@ -108,7 +112,7 @@ class ObjectStore:
     def _lock_path(self, obj: BrainObject) -> Path:
         raw = f"{obj.scope.value}|{obj.kind}|{obj.id}"
         digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
-        directory = self.layout.runtime_dir / "locks"
+        directory = self.layout.runtime_path("locks")
         directory.mkdir(parents=True, exist_ok=True)
         return directory / f"{digest}.lock"
 
