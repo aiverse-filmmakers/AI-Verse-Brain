@@ -13,6 +13,7 @@ from .errors import ValidationError
 from .extension_registry import attach_brain
 from .integration import HostMode, inspect_host, native_registration_blockers
 from .models import utc_now
+from .path_safety import safe_host_path
 
 PACKAGE_VERSION = __version__
 
@@ -31,17 +32,27 @@ def _mode_paths(root: Path, mode: HostMode) -> Tuple[Path, Path]:
         state = root / ".ai-verse-brain"
         return state, state / "runtime"
     if mode == HostMode.AI_VERSE_OS_V2:
-        return root / "operator" / "brain", root / "runtime" / "ai-verse-brain"
+        return (
+            safe_host_path(root, "operator", "brain"),
+            safe_host_path(root, "runtime", "ai-verse-brain"),
+        )
     raise ValidationError("incompatible AI-Verse host has no safe Brain initialization paths")
 
 
+def _marker_path(root: Path, mode: HostMode) -> Path:
+    if mode == HostMode.STANDALONE:
+        return root / ".ai-verse-brain" / "installation.json"
+    if mode == HostMode.AI_VERSE_OS_V2:
+        return safe_host_path(root, "operator", "brain", "installation.json")
+    raise ValidationError("incompatible AI-Verse host has no safe Brain installation marker")
+
+
 def installation_marker_path(root: str) -> Optional[Path]:
-    base = Path(root).resolve()
+    base = Path(root).expanduser().resolve()
     report = inspect_host(str(base))
     if report.mode == HostMode.INCOMPATIBLE_AI_VERSE:
         return None
-    state, _ = _mode_paths(base, report.mode)
-    return state / "installation.json"
+    return _marker_path(base, report.mode)
 
 
 def _validate_marker(data: Dict[str, Any], *, expected_mode: HostMode) -> None:
@@ -77,14 +88,15 @@ def _validate_marker(data: Dict[str, Any], *, expected_mode: HostMode) -> None:
 
 
 def read_installation_marker(root: str) -> Optional[Dict[str, Any]]:
-    base = Path(root).resolve()
+    base = Path(root).expanduser().resolve()
     report = inspect_host(str(base))
     if report.mode == HostMode.INCOMPATIBLE_AI_VERSE:
         return None
-    state, _ = _mode_paths(base, report.mode)
-    marker = state / "installation.json"
+    marker = _marker_path(base, report.mode)
     if not marker.exists():
         return None
+    if report.mode == HostMode.AI_VERSE_OS_V2:
+        marker = safe_host_path(base, "operator", "brain", "installation.json", require_regular_file=True)
     try:
         data = json.loads(marker.read_text(encoding="utf-8"))
     except Exception as exc:
@@ -138,7 +150,7 @@ class InitResult:
 
 
 def plan_init(root: str) -> InitPlan:
-    base = Path(root).resolve()
+    base = Path(root).expanduser().resolve()
     if not base.exists():
         return InitPlan(
             str(base), HostMode.STANDALONE, False, None, None,
@@ -158,7 +170,15 @@ def plan_init(root: str) -> InitPlan:
             warnings=list(report.warnings),
         )
 
-    state, runtime = _mode_paths(base, report.mode)
+    try:
+        state, runtime = _mode_paths(base, report.mode)
+        marker = _marker_path(base, report.mode)
+    except ValidationError as exc:
+        return InitPlan(
+            str(base), report.mode, False, None, None,
+            blockers=[str(exc)], warnings=list(report.warnings),
+        )
+
     blockers: List[str] = []
     warnings = list(report.warnings)
     creates: List[str] = []
@@ -177,10 +197,11 @@ def plan_init(root: str) -> InitPlan:
             creates.append(str(base / ".aiverse" / "extensions" / "registry.json") + "#ai-verse-brain")
             warnings.append("Brain will attach locally before native state initialization")
 
-    marker = state / "installation.json"
     already_initialized = False
     if marker.exists():
         try:
+            if report.mode == HostMode.AI_VERSE_OS_V2:
+                marker = safe_host_path(base, "operator", "brain", "installation.json", require_regular_file=True)
             data = json.loads(marker.read_text(encoding="utf-8"))
             if not isinstance(data, dict):
                 raise ValidationError("installation marker must contain a JSON object")
@@ -233,8 +254,9 @@ def initialize(root: str) -> InitResult:
     if plan.state_root is None or plan.runtime_root is None:
         raise ValidationError("initialization plan has no safe state/runtime path")
 
+    base = Path(root).expanduser().resolve()
     if plan.mode == HostMode.AI_VERSE_OS_V2:
-        report = inspect_host(str(Path(root).resolve()))
+        report = inspect_host(str(base))
         if not report.brain_extension_slot:
             attach_brain(root)
             plan = plan_init(root)
@@ -243,8 +265,10 @@ def initialize(root: str) -> InitResult:
         from .write_gate import require_write_ready
         require_write_ready(root, allow_uninitialized_bootstrap=True)
 
-    state = Path(plan.state_root)
-    runtime = Path(plan.runtime_root)
+    # Re-resolve the physical targets immediately before mutation. A plan is not
+    # filesystem authority if a path was replaced between planning and apply.
+    state, runtime = _mode_paths(base, plan.mode)
+    marker_path = _marker_path(base, plan.mode)
     state.mkdir(parents=True, exist_ok=True)
     runtime.mkdir(parents=True, exist_ok=True)
     try:
@@ -253,7 +277,6 @@ def initialize(root: str) -> InitResult:
     except OSError:
         pass
 
-    marker_path = state / "installation.json"
     if marker_path.exists():
         marker = read_installation_marker(root)
         if marker is None:
@@ -268,6 +291,8 @@ def initialize(root: str) -> InitResult:
         "installation_id": str(uuid4()),
         "installed_at": utc_now(),
     }
+    if plan.mode == HostMode.AI_VERSE_OS_V2:
+        marker_path = safe_host_path(base, "operator", "brain", "installation.json")
     _atomic_json_write(marker_path, marker)
     verified = read_installation_marker(root)
     if verified is None:
