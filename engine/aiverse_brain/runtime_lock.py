@@ -9,7 +9,7 @@ import time
 from typing import Iterator
 from uuid import uuid4
 
-from .errors import LockConflict
+from .errors import LockConflict, ValidationError
 from .models import utc_now
 
 
@@ -17,8 +17,11 @@ class RuntimeKeyLock:
     """Short-lived, disposable cross-process lock for runtime coordination keys."""
 
     def __init__(self, runtime_dir: Path, *, namespace: str, ttl_seconds: int = 60):
+        if not namespace or namespace in {".", ".."} or "/" in namespace or "\\" in namespace:
+            raise ValidationError("runtime lock namespace must be a path-safe segment")
         self.runtime_dir = Path(runtime_dir)
         self.root = self.runtime_dir.parent.parent
+        self.namespace = namespace
         self.directory = self.runtime_dir / "locks" / namespace
         self.ttl_seconds = ttl_seconds
 
@@ -26,13 +29,30 @@ class RuntimeKeyLock:
         digest = hashlib.sha256(key.encode("utf-8")).hexdigest()
         return self.directory / f"{digest}.lock"
 
+    def _revalidate_directory(self) -> None:
+        # A runtime path can be replaced after controller construction. Recheck
+        # the physical native path immediately before every lock mutation.
+        from .integration import HostMode, inspect_host
+        from .path_safety import safe_host_path
+
+        report = inspect_host(str(self.root))
+        if report.mode == HostMode.AI_VERSE_OS_V2:
+            expected_runtime = safe_host_path(self.root, "runtime", "ai-verse-brain")
+            if os.path.abspath(os.fspath(self.runtime_dir)) != os.path.abspath(os.fspath(expected_runtime)):
+                raise ValidationError("runtime lock directory is not the canonical native Brain runtime root")
+            self.directory = safe_host_path(
+                self.root, "runtime", "ai-verse-brain", "locks", self.namespace
+            )
+
     @contextmanager
     def acquire(self, key: str) -> Iterator[None]:
         if not key:
             raise ValueError("lock key is required")
         from .write_gate import require_write_ready
         require_write_ready(str(self.root))
+        self._revalidate_directory()
         self.directory.mkdir(parents=True, exist_ok=True)
+        self._revalidate_directory()
         path = self._path(key)
         token = str(uuid4())
         payload = json.dumps({"token": token, "acquired_at": utc_now(), "pid": os.getpid()}) + "\n"
