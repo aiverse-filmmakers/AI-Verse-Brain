@@ -10,6 +10,7 @@ from typing import Dict, List, Optional
 from .errors import ScopeError, ValidationError
 from .extension_registry import brain_attachment
 from .models import Scope
+from .path_safety import safe_host_path, validate_native_host_parents
 
 
 class HostMode(str, Enum):
@@ -120,7 +121,7 @@ def _memory_detected(root: Path) -> bool:
 
 
 def inspect_host(root: str) -> IntegrationReport:
-    base = Path(root).resolve()
+    base = Path(root).expanduser().resolve()
     manifest = base / "AI-VERSE.yaml"
     if not manifest.exists():
         return IntegrationReport(str(base), HostMode.STANDALONE, True)
@@ -128,18 +129,24 @@ def inspect_host(root: str) -> IntegrationReport:
     text = manifest.read_text(encoding="utf-8", errors="replace")
     schema_version = _extract_scalar(text, "schema_version")
     architecture = _extract_scalar(text, "architecture")
-    operator_ok = (base / "operator").is_dir()
-    workspaces_ok = (base / "workspaces").is_dir()
-    compatible = bool(
+    native_shape = bool(
         schema_version
         and schema_version.startswith("2.")
         and architecture == "unified-workspace"
-        and operator_ok
-        and workspaces_ok
     )
 
     warnings: List[str] = []
+    layout_error: Optional[str] = None
+    if native_shape:
+        try:
+            validate_native_host_parents(base)
+        except ValidationError as exc:
+            layout_error = str(exc)
+
+    compatible = native_shape and layout_error is None
     if not compatible:
+        if layout_error:
+            warnings.append(f"unsafe AI-Verse native path layout: {layout_error}")
         warnings.append(
             "AI-VERSE.yaml exists but the host is not a compatible AI-Verse OS v2 unified-workspace layout; refuse standalone fallback"
         )
@@ -147,7 +154,7 @@ def inspect_host(root: str) -> IntegrationReport:
             str(base), HostMode.INCOMPATIBLE_AI_VERSE, False,
             schema_version=schema_version,
             architecture=architecture,
-            memory_detected=_memory_detected(base),
+            memory_detected=False if layout_error else _memory_detected(base),
             warnings=warnings,
         )
 
@@ -206,23 +213,24 @@ def native_path_contract(root: str, scope: str) -> NativePathContract:
     report = inspect_host(root)
     if report.mode != HostMode.AI_VERSE_OS_V2 or not report.compatible:
         raise ScopeError("native path contract requires compatible AI-Verse OS v2")
-    base = Path(root).resolve()
+    base = Path(root).expanduser().resolve()
     parsed = Scope(scope)
     if parsed.is_operator:
+        brain_state = safe_host_path(base, "operator", "brain")
         return NativePathContract(
             scope,
-            str(base / "operator" / "brain"),
+            str(brain_state),
             str(base / "operator" / "context" / "CURRENT.md"),
             str(base / "operator" / "memory"),
             str(base / "operator" / "decisions"),
             str(base / "knowledge"),
         )
-    workspace = base / "workspaces" / str(parsed.workspace_id)
-    if not workspace.is_dir():
-        raise ScopeError(f"workspace does not exist: {parsed.workspace_id}")
+    workspace_id = str(parsed.workspace_id)
+    workspace = safe_host_path(base, "workspaces", workspace_id, require_directory=True)
+    brain_state = safe_host_path(base, "workspaces", workspace_id, "brain")
     return NativePathContract(
         scope,
-        str(workspace / "brain"),
+        str(brain_state),
         str(workspace / "context" / "CURRENT.md"),
         str(workspace / "memory"),
         str(workspace / "decisions"),

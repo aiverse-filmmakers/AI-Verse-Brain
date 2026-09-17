@@ -6,13 +6,14 @@ import os
 from pathlib import Path
 import shutil
 import tempfile
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from uuid import uuid4
 
 from ._version import INSTALLATION_SCHEMA_VERSION, STATE_SCHEMA_VERSION, __version__
 from .errors import ValidationError
 from .integration import HostMode, inspect_host
 from .models import BrainObject, Scope, utc_now
+from .path_safety import safe_host_path
 from .validation import validate_object
 
 _KIND_DIR = {
@@ -58,11 +59,19 @@ class AdoptionResult:
 
 
 def _tx_root(root: Path) -> Path:
-    return root / ".aiverse" / "brain-adoption"
+    return safe_host_path(root, ".aiverse", "brain-adoption")
 
 
 def _tx_path(root: Path) -> Path:
-    return _tx_root(root) / "transaction.json"
+    return safe_host_path(root, ".aiverse", "brain-adoption", "transaction.json")
+
+
+def _adoption_paths(root: Path) -> Tuple[Path, Path, Path]:
+    return (
+        safe_host_path(root, ".ai-verse-brain"),
+        safe_host_path(root, "operator", "brain"),
+        _tx_path(root),
+    )
 
 
 def _atomic_json(path: Path, data: Dict[str, Any]) -> None:
@@ -79,7 +88,8 @@ def _atomic_json(path: Path, data: Dict[str, Any]) -> None:
 
 def _read_marker(source: Path) -> Dict[str, Any]:
     marker = source / "installation.json"
-    if not marker.is_file(): raise ValidationError("standalone Brain state has no installation.json marker")
+    if not marker.is_file() or marker.is_symlink():
+        raise ValidationError("standalone Brain state has no safe installation.json marker")
     try:
         data = json.loads(marker.read_text(encoding="utf-8"))
     except Exception as exc:
@@ -116,12 +126,18 @@ def _validate_source(source: Path) -> None:
 
 
 def plan_standalone_adoption(root: str) -> AdoptionPlan:
-    base = Path(root).resolve()
+    base = Path(root).expanduser().resolve()
     host = inspect_host(str(base))
     if host.mode != HostMode.AI_VERSE_OS_V2:
         return AdoptionPlan(str(base), False, host.mode == HostMode.STANDALONE)
-    source, destination, tx_path = base / ".ai-verse-brain", base / "operator" / "brain", _tx_path(base)
-    if tx_path.is_file():
+    try:
+        source, destination, tx_path = _adoption_paths(base)
+    except ValidationError as exc:
+        return AdoptionPlan(str(base), True, False, blockers=[str(exc)])
+
+    if tx_path.exists():
+        if tx_path.is_symlink() or not tx_path.is_file():
+            return AdoptionPlan(str(base), True, False, str(source), str(destination), ["unsafe adoption transaction path"])
         try: tx = json.loads(tx_path.read_text(encoding="utf-8"))
         except Exception as exc:
             return AdoptionPlan(str(base), True, False, str(source), str(destination), [f"unreadable adoption transaction: {exc}"])
@@ -165,13 +181,22 @@ def _copy_state(source: Path, staging: Path) -> None:
 
 
 def apply_standalone_adoption(root: str) -> AdoptionResult:
-    base = Path(root).resolve()
+    base = Path(root).expanduser().resolve()
     plan = plan_standalone_adoption(str(base))
     if not plan.safe_to_apply:
         raise ValidationError("Brain standalone adoption blocked: " + "; ".join(plan.blockers))
     if not plan.needed: return AdoptionResult(plan, None, "not-needed")
-    tx_path = _tx_path(base)
-    if tx_path.is_file():
+
+    # Revalidate every Brain-owned adoption destination before mutation. This
+    # prevents a native parent or transaction directory from redirecting the
+    # migration outside the selected host root.
+    source, destination, tx_path = _adoption_paths(base)
+    tx_root = _tx_root(base)
+    tx_root.mkdir(parents=True, exist_ok=True)
+    tx_path = safe_host_path(base, ".aiverse", "brain-adoption", "transaction.json")
+    if tx_path.exists():
+        if tx_path.is_symlink() or not tx_path.is_file():
+            raise ValidationError("unsafe adoption transaction path")
         tx = json.loads(tx_path.read_text(encoding="utf-8"))
     else:
         tx = {
@@ -181,12 +206,11 @@ def apply_standalone_adoption(root: str) -> AdoptionResult:
         }
         _atomic_json(tx_path, tx)
     tx_id = str(tx["transaction_id"])
-    retired = _tx_root(base) / f"retired-{tx_id}"
-    staging = _tx_root(base) / f"staging-{tx_id}"
-    destination = base / "operator" / "brain"
+    retired = safe_host_path(base, ".aiverse", "brain-adoption", f"retired-{tx_id}")
+    staging = safe_host_path(base, ".aiverse", "brain-adoption", f"staging-{tx_id}")
 
     if tx["state"] == "prepared":
-        source = base / ".ai-verse-brain"
+        source = safe_host_path(base, ".ai-verse-brain")
         if source.exists():
             if retired.exists(): raise ValidationError("source and retired snapshot both exist; operator review required")
             os.replace(source, retired)
@@ -194,24 +218,33 @@ def apply_standalone_adoption(root: str) -> AdoptionResult:
             raise ValidationError("standalone Brain source disappeared before retirement")
         tx["state"] = "source_retired"
         tx["retired_source"] = retired.relative_to(base).as_posix()
-        _atomic_json(tx_path, tx)
+        _atomic_json(safe_host_path(base, ".aiverse", "brain-adoption", "transaction.json"), tx)
 
     if tx["state"] == "source_retired":
+        retired = safe_host_path(base, ".aiverse", "brain-adoption", f"retired-{tx_id}", require_directory=True)
+        staging = safe_host_path(base, ".aiverse", "brain-adoption", f"staging-{tx_id}")
         _validate_source(retired)
         _copy_state(retired, staging)
-        tx["state"] = "staged"; _atomic_json(tx_path, tx)
+        tx["state"] = "staged"
+        _atomic_json(safe_host_path(base, ".aiverse", "brain-adoption", "transaction.json"), tx)
 
     if tx["state"] == "staged":
+        destination = safe_host_path(base, "operator", "brain")
+        staging = safe_host_path(base, ".aiverse", "brain-adoption", f"staging-{tx_id}", require_directory=True)
         if destination.exists() and any(destination.iterdir()):
             raise ValidationError("native operator/brain became non-empty during adoption")
         destination.parent.mkdir(parents=True, exist_ok=True)
         if destination.exists(): destination.rmdir()
+        destination = safe_host_path(base, "operator", "brain")
         os.replace(staging, destination)
-        (base / "runtime" / "ai-verse-brain").mkdir(parents=True, exist_ok=True)
-        tx["state"] = "complete"; tx["completed_at"] = utc_now(); _atomic_json(tx_path, tx)
+        runtime = safe_host_path(base, "runtime", "ai-verse-brain")
+        runtime.mkdir(parents=True, exist_ok=True)
+        tx["state"] = "complete"; tx["completed_at"] = utc_now()
+        _atomic_json(safe_host_path(base, ".aiverse", "brain-adoption", "transaction.json"), tx)
 
     if tx["state"] != "complete":
         raise ValidationError(f"unsupported adoption transaction state: {tx['state']}")
+    retired = safe_host_path(base, ".aiverse", "brain-adoption", f"retired-{tx_id}")
     if retired.exists():
         for path in retired.rglob("*"):
             try:
