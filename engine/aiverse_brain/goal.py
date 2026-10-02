@@ -1,15 +1,17 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass
 import hashlib
 import json
 import os
 from pathlib import Path
 import tempfile
-from typing import Any, Dict, Iterable, List, Optional
+import time
+from typing import Any, Dict, Iterable, Iterator, List, Optional
 
 from .authority import AuthorityTier, require_user_authority
-from .errors import AuthorityError, RevisionConflict, ValidationError
+from .errors import AuthorityError, LockConflict, RevisionConflict, ValidationError
 from .models import BrainObject, EvidenceRef, Scope, parse_timestamp, utc_now
 from .runtime_lock import RuntimeKeyLock
 
@@ -22,6 +24,8 @@ INTERNAL_TO_PUBLIC = {value: key for key, value in PUBLIC_TO_INTERNAL.items()}
 TERMINAL = {"COMPLETE", "CLEARED"}
 DEFAULT_MAX_TURNS = 20
 DEFAULT_NO_PROGRESS_LIMIT = 3
+_OPERATION_LOCK_WAIT_SECONDS = 5.0
+_OPERATION_LOCK_POLL_SECONDS = 0.01
 _TRANSITION_TARGET = {
     "pause": "PAUSED", "resume": "ACTIVE", "block": "BLOCKED",
     "complete": "COMPLETE", "clear": "CLEARED",
@@ -231,6 +235,37 @@ class GoalService:
             return fp, GoalMutationResult(self._public(obj), operation_id, True)
         return fp, None
 
+    @contextmanager
+    def _mutation_lock(
+        self, scope: str, operation_id: str, goal_id: Optional[str] = None
+    ) -> Iterator[None]:
+        operation_key = f"{scope}|{operation_id}"
+        deadline = time.monotonic() + _OPERATION_LOCK_WAIT_SECONDS
+        operation_guard = None
+        while operation_guard is None:
+            candidate = self.lock.acquire(operation_key)
+            try:
+                candidate.__enter__()
+            except LockConflict:
+                if time.monotonic() >= deadline:
+                    raise
+                time.sleep(_OPERATION_LOCK_POLL_SECONDS)
+                continue
+            operation_guard = candidate
+
+        try:
+            if goal_id is None:
+                yield
+                return
+            goal_key = f"{scope}|{goal_id}"
+            if goal_key == operation_key:
+                yield
+                return
+            with self.lock.acquire(goal_key):
+                yield
+        finally:
+            operation_guard.__exit__(None, None, None)
+
     @staticmethod
     def _version(obj: BrainObject, expected: int) -> None:
         if not isinstance(expected, int) or isinstance(expected, bool) or expected < 1:
@@ -277,7 +312,7 @@ class GoalService:
         if replay:
             return replay
         goal_id = "goal_" + hashlib.sha256(f"{scope}|{operation_id}".encode()).hexdigest()[:32]
-        with self.lock.acquire(f"{scope}|{operation_id}"):
+        with self._mutation_lock(scope, operation_id):
             fp, replay = self._begin(scope, operation_id, request)
             if replay:
                 return replay
@@ -325,7 +360,7 @@ class GoalService:
         }
         fp, replay = self._begin(scope, operation_id, request)
         if replay: return replay
-        with self.lock.acquire(f"{scope}|{goal_id}"):
+        with self._mutation_lock(scope, operation_id, goal_id):
             fp, replay = self._begin(scope, operation_id, request)
             if replay: return replay
             obj = self.store.load("goal", scope, goal_id)
@@ -374,7 +409,7 @@ class GoalService:
         }
         fp, replay = self._begin(scope, operation_id, request)
         if replay: return replay
-        with self.lock.acquire(f"{scope}|{goal_id}"):
+        with self._mutation_lock(scope, operation_id, goal_id):
             fp, replay = self._begin(scope, operation_id, request)
             if replay: return replay
             obj = self.store.load("goal", scope, goal_id)
@@ -445,7 +480,7 @@ class GoalService:
         }
         fp, replay = self._begin(scope, operation_id, request)
         if replay: return replay
-        with self.lock.acquire(f"{scope}|{goal_id}"):
+        with self._mutation_lock(scope, operation_id, goal_id):
             fp, replay = self._begin(scope, operation_id, request)
             if replay: return replay
             obj = self.store.load("goal", scope, goal_id)
@@ -497,7 +532,7 @@ class GoalService:
         }
         fp, replay = self._begin(scope, operation_id, request)
         if replay: return replay
-        with self.lock.acquire(f"{scope}|{goal_id}"):
+        with self._mutation_lock(scope, operation_id, goal_id):
             fp, replay = self._begin(scope, operation_id, request)
             if replay: return replay
             obj = self.store.load("goal", scope, goal_id)
