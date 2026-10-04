@@ -1,6 +1,6 @@
-# Public Beta Release Checklist
+# Release and Development Identity Checklist
 
-This document is the shipment gate for `0.1.0-beta.2`.
+The accepted `0.1.0-beta.2` artifact is immutable. Current `main` is post-beta development and must use a distinct version identity until a new release is explicitly accepted.
 
 ## Release invariants
 
@@ -41,13 +41,13 @@ Before tagging:
 
 1. Confirm the PR head is the exact commit that passed CI.
 2. Confirm no unresolved review thread represents a release blocker.
-3. Confirm `BRAIN.yaml`, `_version.py`, package metadata and README all say `0.1.0-beta.2` / `0.1.0b2` consistently.
+3. For a release, confirm `BRAIN.yaml`, `_version.py`, package metadata and README all use the candidate release identity consistently. Development `main` must not reuse `0.1.0-beta.2`.
 4. Re-check current Claude Code, Codex CLI and Hermes Agent non-interactive flags. Vendor CLIs are external moving dependencies.
 5. Confirm `SECURITY.md`, `CHANGELOG.md`, `LICENSE`, installation docs and vendor docs are present.
 6. Confirm no credential values, generated local state or runtime artifacts are tracked.
 7. Merge the release candidate only when CI, OS Direction Ownership Contract and Skills Receipt Contract are green on the exact PR head.
-8. Record the exact 40-character merged Git revision as the immutable beta.2 source artifact.
-9. If publishing a GitHub tag/prerelease, point `v0.1.0-beta.2` at that exact immutable revision.
+8. Record the exact 40-character merged Git revision as the immutable source artifact.
+9. If publishing a GitHub tag/prerelease, point it at that exact immutable revision.
 10. Test the exact-revision install in a fresh environment where possible.
 
 ## User install

@@ -2,8 +2,8 @@ schema_version: "0.1"
 architecture: intent-cognition-initiative-learning
 package:
   name: AI-Verse Brain
-  version: "0.1.0-beta.2"
-  status: public-beta-release-candidate
+version: "0.1.0-beta.3.dev0"
+status: development
   python: ">=3.9"
 
 purpose: "Universal intelligence layer for persistent intent, initiative, bounded execution, verification, learning, and controlled self-improvement."
