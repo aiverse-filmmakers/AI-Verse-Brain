@@ -4,7 +4,7 @@
 
 AI-Verse Brain gives capable agents a durable direction-and-control layer without turning the model into the source of authority. It can run standalone and can integrate with AI-Verse OS and AI-Verse Memory while remaining a separate repository and responsibility boundary.
 
-> Status: **public beta release candidate `0.1.0-beta.2`**.
+> Status: **post-beta development `0.1.0-beta.3.dev0`**. The accepted beta.2 artifact remains pinned to its immutable revision.
 
 ## What Brain owns
 
@@ -49,7 +49,7 @@ The central rule is:
 
 Python 3.9+ is required.
 
-For reproducible public-beta installs, use the exact 40-character Git revision recorded for the release artifact:
+For reproducible accepted-beta installs, use the exact 40-character Git revision recorded for the release artifact:
 
 ```bash
 python -m pip install "git+https://github.com/aiverse-filmmakers/AI-Verse-Brain.git@<exact-beta-2-revision>"

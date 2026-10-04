@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.0-beta.3.dev0
+
+Development identity for post-beta work. This moving development line is distinct from the accepted immutable `0.1.0-beta.2` artifact.
+
 ## 0.1.0-beta.2
 
 Public-beta lifecycle and canonical Goal contract release.

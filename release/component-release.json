@@ -1,9 +1,9 @@
 {
   "schema_version": "ai-verse.component-release/v1",
   "component_id": "ai-verse-brain",
-  "version": "0.1.0-beta.2",
-  "revision": "80019be5e6df29aee70371544bd96cedbf0329b9",
-  "release_status": "accepted",
+  "version": "0.1.0-beta.3.dev0",
+  "revision": "39b3feb6ad03aa185a4ba7f5f24614e55c4b969f",
+  "release_status": "development",
   "package": {
     "repository": "aiverse-filmmakers/AI-Verse-Brain",
     "source_type": "git",
@@ -52,24 +52,8 @@
     "exposes_remote_listener": false
   },
   "evidence": {
-    "ci": [
-      {
-        "kind": "distribution-core-ci",
-        "status": "pass",
-        "revision": "80019be5e6df29aee70371544bd96cedbf0329b9",
-        "run_id": "34782949282",
-        "url": "https://github.com/aiverse-filmmakers/ai-verse-distribution/actions/runs/34782949282"
-      }
-    ],
-    "acceptance": [
-      {
-        "kind": "distribution-core-clean-machine",
-        "status": "pass",
-        "revision": "80019be5e6df29aee70371544bd96cedbf0329b9",
-        "run_id": "34782949287",
-        "url": "https://github.com/aiverse-filmmakers/ai-verse-distribution/actions/runs/34782949287"
-      }
-    ]
+    "ci": [],
+    "acceptance": []
   },
   "semantics": {
     "release_metadata_only": true,
