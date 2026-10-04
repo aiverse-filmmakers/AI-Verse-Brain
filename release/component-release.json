@@ -2,7 +2,7 @@
   "schema_version": "ai-verse.component-release/v1",
   "component_id": "ai-verse-brain",
   "version": "0.1.0-beta.3.dev0",
-  "revision": "5d29b42",
+  "revision": "5d29b42a337bd078898c2e2ec876831a9ea421fa",
   "release_status": "development",
   "package": {
     "repository": "aiverse-filmmakers/AI-Verse-Brain",
