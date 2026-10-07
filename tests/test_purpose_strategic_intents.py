@@ -3,6 +3,7 @@ import unittest
 
 from aiverse_brain import AuthorityTier, BrainController, build_purpose_snapshot
 from aiverse_brain.errors import AuthorityError, ValidationError
+from aiverse_brain.models import BrainObject
 from aiverse_brain.validation import validate_payload
 
 
@@ -18,6 +19,32 @@ def _create_confirmed(controller, subtype, *, scope="operator", statement=None):
         source=AuthorityTier.EXPLICIT_USER,
         actor="user:test",
     )
+
+
+class _ScopedStore:
+    def __init__(self, objects):
+        self.objects = list(objects)
+
+    def list(self, kind, scope, statuses=None):
+        return [
+            obj for obj in self.objects
+            if obj.kind == kind and obj.scope.value == scope and (statuses is None or obj.status in statuses)
+        ]
+
+    def load(self, kind, scope, object_id):
+        for obj in self.objects:
+            if obj.kind == kind and obj.scope.value == scope and obj.id == object_id:
+                return obj
+        raise KeyError((kind, scope, object_id))
+
+
+class _ScopedController:
+    def __init__(self, objects):
+        self.store = _ScopedStore(objects)
+
+    @staticmethod
+    def direction_owner(scope):
+        return "brain"
 
 
 class PurposeStrategicIntentTests(unittest.TestCase):
@@ -137,16 +164,18 @@ class PurposeStrategicIntentTests(unittest.TestCase):
             )
 
     def test_purpose_supersedes_cannot_cross_scope(self):
-        prior = _create_confirmed(self.controller, "strategy", scope="workspace:alpha")
-        with self.assertRaises(Exception):
-            self.controller.create(
-                "intent",
+        prior = BrainObject.new(
+            "intent", "workspace:alpha", "CONFIRMED",
+            {"subtype": "strategy", "statement": "alpha strategy"},
+            created_by="user:test",
+        )
+        isolated = object.__new__(BrainController)
+        isolated.store = _ScopedStore([prior])
+        with self.assertRaises(KeyError):
+            isolated._validate_purpose_supersedes(
                 "workspace:beta",
-                "PROPOSED",
-                {"subtype": "strategy", "statement": "cross-scope replacement"},
-                source=AuthorityTier.TEMPORARY_HYPOTHESIS,
-                actor="brain:test",
-                supersedes=prior.id,
+                {"subtype": "strategy", "statement": "beta strategy"},
+                prior.id,
             )
 
     def test_legacy_intents_are_not_reinterpreted_as_new_purpose_subtypes(self):
@@ -176,13 +205,18 @@ class PurposeStrategicIntentTests(unittest.TestCase):
         ))
 
     def test_workspace_purpose_truth_is_exact_scope_only(self):
-        alpha = _create_confirmed(
-            self.controller, "mission", scope="workspace:alpha", statement="alpha mission"
+        alpha = BrainObject.new(
+            "intent", "workspace:alpha", "CONFIRMED",
+            {"subtype": "mission", "statement": "alpha mission"},
+            created_by="user:test",
         )
-        beta = _create_confirmed(
-            self.controller, "mission", scope="workspace:beta", statement="beta mission"
+        beta = BrainObject.new(
+            "intent", "workspace:beta", "CONFIRMED",
+            {"subtype": "mission", "statement": "beta mission"},
+            created_by="user:test",
         )
-        alpha_snapshot = build_purpose_snapshot(self.controller, "workspace:alpha")
+        scoped = _ScopedController([alpha, beta])
+        alpha_snapshot = build_purpose_snapshot(scoped, "workspace:alpha")
         ids = {item["id"] for item in alpha_snapshot["strategic_objects"]["intents"]}
         self.assertIn(alpha.id, ids)
         self.assertNotIn(beta.id, ids)
