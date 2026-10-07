@@ -16,8 +16,9 @@ class AuthorityTier(IntEnum):
 
 
 PRIVILEGED_KINDS = {"policy"}
+PURPOSE_STRATEGIC_INTENT_SUBTYPES = {"problem", "mission", "strategy"}
 PRIVILEGED_INTENT_FIELDS = {
-    "problem", "mission", "strategy",
+    *PURPOSE_STRATEGIC_INTENT_SUBTYPES,
     "goal", "desired_state", "boundary", "constraint", "success_definition"
 }
 SELF_EVOLUTION_FORBIDDEN_FIELDS = {
@@ -39,6 +40,10 @@ def require_user_authority(source: AuthorityTier, reason: str) -> None:
 
 def assert_goal_confirmation(source: AuthorityTier) -> None:
     require_user_authority(source, "material goal confirmation")
+
+
+def assert_strategic_intent_replacement(source: AuthorityTier) -> None:
+    require_user_authority(source, "privileged strategic intent replacement")
 
 
 def assert_policy_mutation(source: AuthorityTier) -> None:
