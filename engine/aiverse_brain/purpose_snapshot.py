@@ -110,8 +110,26 @@ def _relationships(intents: List[BrainObject], gaps: List[BrainObject], initiati
 
 
 def build_purpose_snapshot(controller: "BrainController", scope: str) -> Dict[str, Any]:
-    """Build the read-only Brain strategic projection used by Purpose Context."""
+    """Build the read-only Brain strategic projection used by Purpose Context.
+
+    Brain exposes strategic truth only while Brain is the active direction owner for the
+    requested scope. When OS owns direction, this API never republishes staged or stale Brain
+    intent as current strategy.
+    """
     Scope(scope)
+    direction_owner = controller.direction_owner(scope)
+    if direction_owner != "brain":
+        return {
+            "schema_version": PURPOSE_SNAPSHOT_SCHEMA_VERSION,
+            "scope": scope,
+            "direction_owner": direction_owner,
+            "status": "unavailable",
+            "reason": "direction_owned_by_os",
+            "strategic_objects": {"intents": [], "gaps": [], "initiatives": []},
+            "relationships": [],
+            "relationship_rejections": [],
+        }
+
     intents = controller.store.list("intent", scope, _CURRENT_INTENT_STATUSES)
     gaps = controller.store.list("gap", scope, _CURRENT_GAP_STATUSES)
     initiatives = controller.store.list("initiative", scope, _CURRENT_INITIATIVE_STATUSES)
@@ -120,6 +138,7 @@ def build_purpose_snapshot(controller: "BrainController", scope: str) -> Dict[st
     return {
         "schema_version": PURPOSE_SNAPSHOT_SCHEMA_VERSION,
         "scope": scope,
+        "direction_owner": "brain",
         "status": "ok",
         "strategic_objects": {
             "intents": _views(intents),
