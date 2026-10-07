@@ -94,6 +94,23 @@ Purpose uses Brain's existing object identity and revision model; it does not cr
 
 Purpose resolves current strategic truth from canonical lifecycle state plus exact observed revision. It never chooses a winner merely because one object has a higher revision, newer timestamp, or a `supersedes` pointer whose counterpart was not canonically superseded.
 
+## No silent migration / reinterpretation
+
+Adding the new subtype vocabulary changes what future canonical writes may express; it does not change the meaning of any existing record.
+
+1. Existing `intent:desired_state`, `intent:goal`, `intent:boundary`, `intent:constraint`, and `intent:success_definition` records keep their original subtype and semantics.
+2. Canonical `goal` objects remain goals. They are not converted into `intent:mission`, `intent:problem`, or `intent:strategy` based on wording, hierarchy, age, or model judgment.
+3. `strategy_rule` remains the controlled self-learning strategy-rule object. It is never reclassified as strategic `intent:strategy` merely because its text appears strategic.
+4. OS profile/current-context Markdown, generated direction views, Memory history, Data records, and external source text are not silently imported into the new Brain subtypes.
+5. Loading, reading, upgrading package code, rebuilding a Purpose projection, installing Purpose support, or changing direction owner performs no subtype rewrite and creates no new strategic intent.
+6. Historical objects whose text resembles a problem/mission/strategy remain historical objects of their original kind/subtype until an explicit owner-routed canonical mutation or migration is requested and authorized.
+7. A future migration tool, if ever introduced, must be explicit, previewable, scope-bound, idempotent, provenance-preserving, and confirmation-bound for privileged strategic intent. No such migration is part of Purpose v1 Slice 3.2.
+8. Purpose snapshot classification is exact-subtype based. It must not infer `problem`, `mission`, or `strategy` from free text, source filenames, generated views, or neighboring records.
+
+### Compatibility law
+
+Repositories containing only pre-Purpose Brain objects remain valid. The absence of the new subtypes means the corresponding Purpose sections are canonically empty/absent according to the read contract; it is never an instruction to synthesize them.
+
 ## NEXT
 
-Freeze the no-silent-migration rule: existing Intent subtypes, goals, strategy rules, files, or historical records must not be reinterpreted as `problem`, `mission`, or strategic `strategy` without an explicit canonical mutation/migration.
+Add exhaustive unit coverage for subtype validation, lifecycle/authority, exact-scope ownership, current snapshot classification, supersession semantics, and no-silent-migration compatibility before closing Slice 3.2.
