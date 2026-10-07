@@ -31,7 +31,7 @@ DRAFT
       -> ABANDONED
 ```
 
-Canonical transition set is therefore exactly the existing Brain Intent state machine:
+Canonical transition set is exactly the existing Brain Intent state machine:
 
 - `DRAFT -> PROPOSED`
 - `PROPOSED -> CONFIRMED | ABANDONED`
@@ -55,6 +55,27 @@ Purpose-specific meaning does not introduce extra statuses:
 5. Terminal records are never silently revived; a replacement requires normal canonical mutation/supersession rules.
 6. Status semantics are identical in operator and workspace scopes; scope changes do not copy or transfer a strategic intent.
 
+## Confirmation / authority rules
+
+`problem`, `mission`, and strategic `strategy` are privileged strategic intent subtypes.
+
+They inherit the existing Brain Intent confirmation gate unchanged:
+
+- creating an Intent directly as `CONFIRMED` requires `assert_goal_confirmation` authority;
+- transitioning `PROPOSED -> CONFIRMED` requires the same gate;
+- the current Brain gate accepts only explicit-user authority or the stronger host hard-constraint tier; model hypotheses, validated strategy, derived model state, verified evidence, canonical scoped state, and external data cannot independently confirm these strategic intents;
+- external data cannot directly create Brain control state or drive lifecycle transitions;
+- in native AI-Verse mode, Brain may confirm/write strategic Intent only when Brain is the active direction owner for that exact scope; OS-owned direction requires explicit handover first.
+
+Purpose-specific laws:
+
+1. An LLM may propose a problem, mission, or strategy as non-confirmed candidate intent, but it cannot promote it into current Purpose truth on its own.
+2. Purpose snapshot eligibility begins only at the existing confirmed/current states (`CONFIRMED`, `ACTIVE`, `PAUSED`).
+3. Seeing, deriving, or explaining a Purpose trajectory grants no mutation authority.
+4. A cross-scope relation grants no authority to confirm or change the referenced scope's strategic intent.
+5. The `PRIVILEGED_INTENT_FIELDS` registry includes `problem`, `mission`, and `strategy` so future privileged-field/self-evolution checks treat them as strategic, not ordinary model state.
+6. No special lower-authority shortcut exists for strategy merely because Brain also has `strategy_rule`; the two semantics remain separate.
+
 ## NEXT
 
-Define the confirmation/authority requirements for these privileged strategic intent subtypes before accepting them as confirmed/current direction.
+Define supersession/versioning behavior for these new strategic intent subtypes without creating a second revision system.
