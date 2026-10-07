@@ -109,15 +109,31 @@ def _relationships(intents: List[BrainObject], gaps: List[BrainObject], initiati
     return edges, rejected
 
 
-def build_purpose_snapshot(controller: "BrainController", scope: str) -> Dict[str, Any]:
-    """Build the read-only Brain strategic projection used by Purpose Context.
+def _safe_list(controller: "BrainController", kind: str, scope: str, statuses: set[str]) -> tuple[List[BrainObject], Dict[str, str]]:
+    try:
+        return controller.store.list(kind, scope, statuses), {"state": "ok"}
+    except Exception:  # public owner boundary: sanitize internals and surface bounded state
+        return [], {"state": "unavailable", "reason": f"{kind}_read_failed"}
 
-    Brain exposes strategic truth only while Brain is the active direction owner for the
-    requested scope. When OS owns direction, this API never republishes staged or stale Brain
-    intent as current strategy.
-    """
+
+def build_purpose_snapshot(controller: "BrainController", scope: str) -> Dict[str, Any]:
+    """Build the read-only Brain strategic projection used by Purpose Context."""
     Scope(scope)
-    direction_owner = controller.direction_owner(scope)
+    try:
+        direction_owner = controller.direction_owner(scope)
+    except Exception:
+        return {
+            "schema_version": PURPOSE_SNAPSHOT_SCHEMA_VERSION,
+            "scope": scope,
+            "direction_owner": "unknown",
+            "status": "unavailable",
+            "reason": "direction_owner_unavailable",
+            "read_states": {},
+            "strategic_objects": {"intents": [], "gaps": [], "initiatives": []},
+            "relationships": [],
+            "relationship_rejections": [],
+        }
+
     if direction_owner != "brain":
         return {
             "schema_version": PURPOSE_SNAPSHOT_SCHEMA_VERSION,
@@ -125,21 +141,35 @@ def build_purpose_snapshot(controller: "BrainController", scope: str) -> Dict[st
             "direction_owner": direction_owner,
             "status": "unavailable",
             "reason": "direction_owned_by_os",
+            "read_states": {},
             "strategic_objects": {"intents": [], "gaps": [], "initiatives": []},
             "relationships": [],
             "relationship_rejections": [],
         }
 
-    intents = controller.store.list("intent", scope, _CURRENT_INTENT_STATUSES)
-    gaps = controller.store.list("gap", scope, _CURRENT_GAP_STATUSES)
-    initiatives = controller.store.list("initiative", scope, _CURRENT_INITIATIVE_STATUSES)
-    relationships, relationship_rejections = _relationships(intents, gaps, initiatives)
+    intents, intent_state = _safe_list(controller, "intent", scope, _CURRENT_INTENT_STATUSES)
+    gaps, gap_state = _safe_list(controller, "gap", scope, _CURRENT_GAP_STATUSES)
+    initiatives, initiative_state = _safe_list(controller, "initiative", scope, _CURRENT_INITIATIVE_STATUSES)
+    read_states = {"intents": intent_state, "gaps": gap_state, "initiatives": initiative_state}
+    unavailable_count = sum(1 for item in read_states.values() if item["state"] != "ok")
 
-    return {
+    if unavailable_count == 3:
+        status = "unavailable"
+        reason = "strategic_reads_unavailable"
+    elif unavailable_count:
+        status = "partial"
+        reason = "strategic_reads_partial"
+    else:
+        status = "ok"
+        reason = None
+
+    relationships, relationship_rejections = _relationships(intents, gaps, initiatives)
+    result = {
         "schema_version": PURPOSE_SNAPSHOT_SCHEMA_VERSION,
         "scope": scope,
         "direction_owner": "brain",
-        "status": "ok",
+        "status": status,
+        "read_states": read_states,
         "strategic_objects": {
             "intents": _views(intents),
             "gaps": _views(gaps),
@@ -148,3 +178,6 @@ def build_purpose_snapshot(controller: "BrainController", scope: str) -> Dict[st
         "relationships": relationships,
         "relationship_rejections": relationship_rejections,
     }
+    if reason is not None:
+        result["reason"] = reason
+    return result
