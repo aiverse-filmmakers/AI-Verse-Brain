@@ -14,6 +14,16 @@ _CURRENT_INITIATIVE_STATUSES = {"ACCEPTED", "ACTIVE", "WAITING", "BLOCKED", "STA
 _CURRENT_GAP_STATUSES = {"ACTIVE"}
 
 
+def canonical_ref(obj: BrainObject) -> Dict[str, str]:
+    return {
+        "owner": "ai-verse-brain",
+        "scope": obj.scope.value,
+        "kind": obj.kind,
+        "id": obj.id,
+        "version": str(obj.revision),
+    }
+
+
 def _object_view(obj: BrainObject) -> Dict[str, Any]:
     """Return a stable public strategic-object view without storage details."""
     return {
@@ -24,6 +34,9 @@ def _object_view(obj: BrainObject) -> Dict[str, Any]:
         "revision": obj.revision,
         "created_at": obj.created_at,
         "updated_at": obj.updated_at,
+        "canonical_ref": canonical_ref(obj),
+        "source_refs": list(obj.source_refs),
+        "evidence_refs": [item.to_dict() for item in obj.evidence_refs],
         "payload": dict(obj.payload),
     }
 
@@ -35,9 +48,8 @@ def _views(items: Iterable[BrainObject]) -> List[Dict[str, Any]]:
 def build_purpose_snapshot(controller: "BrainController", scope: str) -> Dict[str, Any]:
     """Build the Brain-owned strategic read projection for Purpose Context.
 
-    This function is deliberately read-only. It exposes only confirmed/current strategic
-    objects; draft/proposed/terminal strategic records are not presented as current truth.
-    Later contract tasks add evidence, relationship, ownership and availability metadata.
+    Read-only and bounded to confirmed/current strategic objects. Every public object view
+    carries its exact Brain canonical ref plus preserved source/evidence references.
     """
     Scope(scope)
     intents = controller.store.list("intent", scope, _CURRENT_INTENT_STATUSES)
