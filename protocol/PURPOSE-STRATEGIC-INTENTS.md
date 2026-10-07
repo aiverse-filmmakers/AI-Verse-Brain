@@ -1,6 +1,6 @@
 # Purpose Strategic Intent Contract
 
-**Status:** IN PROGRESS — Purpose Context Slice 3.2
+**Status:** COMPLETE / CONTRACT FROZEN — Purpose Context Slice 3.2
 
 AI-Verse Brain represents Purpose v1 `problem`, `mission`, and strategic `strategy` as subtypes of the existing canonical `intent` object. They do not create new object kinds and `strategy` is not the self-learning `strategy_rule` object.
 
@@ -111,6 +111,6 @@ Adding the new subtype vocabulary changes what future canonical writes may expre
 
 Repositories containing only pre-Purpose Brain objects remain valid. The absence of the new subtypes means the corresponding Purpose sections are canonically empty/absent according to the read contract; it is never an instruction to synthesize them.
 
-## NEXT
+## Acceptance
 
-Add exhaustive unit coverage for subtype validation, lifecycle/authority, exact-scope ownership, current snapshot classification, supersession semantics, and no-silent-migration compatibility before closing Slice 3.2.
+Slice 3.2 is frozen after exhaustive `unittest` coverage of subtype validation, confirmation authority, current-state classification, exact canonical refs/revisions, privileged supersession, same-subtype/same-scope replacement, no-silent-reinterpretation compatibility, `strategy_rule` separation, and workspace scope isolation. The accepted Brain implementation is a descendant of the repaired public-beta Brain baseline and remains read-only at the Purpose snapshot boundary.
