@@ -37,6 +37,7 @@ from .local_host import ReadOnlyContextHost
 from .migration import MigrationPlan, apply_migration, plan_migration
 from .lifecycle import component_descriptor, lifecycle_doctor, lifecycle_status, setup_component
 from .owner_write import OwnerWriteResult, route_durable_write
+from .purpose_snapshot import PURPOSE_SNAPSHOT_SCHEMA_VERSION, build_purpose_snapshot
 from .strategy_revision import StrategyRestorationResult, StrategyRevisionService
 from .models import BrainObject, EvidenceRef, Scope
 from .onboarding import OnboardingPlan, OnboardingResult, OnboardingService
@@ -81,6 +82,7 @@ __all__ = [
     "MigrationPlan", "plan_migration", "apply_migration",
     "component_descriptor", "lifecycle_status", "lifecycle_doctor", "setup_component",
     "OwnerWriteResult", "route_durable_write",
+    "PURPOSE_SNAPSHOT_SCHEMA_VERSION", "build_purpose_snapshot",
     "VendorOptions", "vendor_bridge_config", "vendor_reasoner",
     "render_cadence_hooks",
     "__version__",
