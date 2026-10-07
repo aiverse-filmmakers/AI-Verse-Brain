@@ -17,6 +17,7 @@ class AuthorityTier(IntEnum):
 
 PRIVILEGED_KINDS = {"policy"}
 PRIVILEGED_INTENT_FIELDS = {
+    "problem", "mission", "strategy",
     "goal", "desired_state", "boundary", "constraint", "success_definition"
 }
 SELF_EVOLUTION_FORBIDDEN_FIELDS = {
