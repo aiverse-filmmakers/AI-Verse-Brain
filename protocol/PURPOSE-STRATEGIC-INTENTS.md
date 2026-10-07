@@ -76,6 +76,24 @@ Purpose-specific laws:
 5. The `PRIVILEGED_INTENT_FIELDS` registry includes `problem`, `mission`, and `strategy` so future privileged-field/self-evolution checks treat them as strategic, not ordinary model state.
 6. No special lower-authority shortcut exists for strategy merely because Brain also has `strategy_rule`; the two semantics remain separate.
 
+## Supersession and versioning
+
+Purpose uses Brain's existing object identity and revision model; it does not create a second version system.
+
+- The canonical version of an owner-backed strategic intent is the existing `BrainObject.revision` for its stable object `id`.
+- An in-place edit of the same canonical object increments/changes that object's revision through the existing owner write path. Purpose canonical refs therefore keep the same `(owner, scope, kind, id)` and expose the observed revision as `version`.
+- A semantically replacement intent is a different canonical object and may carry the existing `supersedes` / `superseded_by` linkage. Replacement is explicit; timestamp order, storage order, text similarity, or "latest record" heuristics never imply supersession.
+- A valid Purpose supersession link must stay inside the same exact scope and the same strategic intent subtype. `mission` cannot silently supersede `problem`, `strategy` cannot supersede `mission`, and operator/workspace records cannot supersede one another.
+- Superseded strategic intents transition through the existing terminal `SUPERSEDED` state and are excluded from current Purpose truth. They remain historical canonical records; Purpose must not delete or rewrite them.
+- No singleton assumption is introduced. Multiple current problems, missions, or strategies may coexist when canonically confirmed. Supersession identifies a replacement chain; it is not a uniqueness rule.
+- A broken, cross-scope, cross-subtype, circular, or otherwise unverifiable supersession link is not authoritative Purpose truth. The read surface must reject or expose it as invalid/partial rather than guessing a replacement.
+- Creating a candidate that declares `supersedes` does not itself retire the prior record. The prior record remains current until the canonical lifecycle mutation marks it `SUPERSEDED` under the normal strategic owner and authority rules.
+- Replacing already-confirmed strategic intent is a material strategic mutation. The eventual mutation path must require the same explicit-user-level authority used for privileged strategic confirmation; a derived Purpose projection cannot authorize it.
+
+### Purpose read law
+
+Purpose resolves current strategic truth from canonical lifecycle state plus exact observed revision. It never chooses a winner merely because one object has a higher revision, newer timestamp, or a `supersedes` pointer whose counterpart was not canonically superseded.
+
 ## NEXT
 
-Define supersession/versioning behavior for these new strategic intent subtypes without creating a second revision system.
+Freeze the no-silent-migration rule: existing Intent subtypes, goals, strategy rules, files, or historical records must not be reinterpreted as `problem`, `mission`, or strategic `strategy` without an explicit canonical mutation/migration.
