@@ -4,7 +4,7 @@
   "type": "object",
   "required": ["subtype", "statement"],
   "properties": {
-    "subtype": {"enum": ["desired_state", "goal", "boundary", "constraint", "success_definition"]},
+    "subtype": {"enum": ["problem", "mission", "strategy", "desired_state", "goal", "boundary", "constraint", "success_definition"]},
     "statement": {"type": "string", "minLength": 1},
     "priority": {"type": ["string", "number", "null"]},
     "target_date": {"type": ["string", "null"]},
