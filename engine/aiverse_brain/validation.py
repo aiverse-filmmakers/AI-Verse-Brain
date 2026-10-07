@@ -36,7 +36,7 @@ _STATUSES = {
 }
 
 _ENUMS = {
-    ("intent", "subtype"): {"desired_state", "goal", "boundary", "constraint", "success_definition"},
+    ("intent", "subtype"): {"problem", "mission", "strategy", "desired_state", "goal", "boundary", "constraint", "success_definition"},
     ("practice", "health"): {"UNKNOWN", "HEALTHY", "AT_RISK", "DEGRADED", "BREACHED"},
     ("model_belief", "domain"): {"user_model", "agent_model", "world_model"},
     ("model_belief", "epistemic_state"): {"known", "inferred", "assumed", "unknown", "contradicted", "stale"},
