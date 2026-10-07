@@ -4,7 +4,12 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 from .attention import AttentionLedger
-from .authority import AuthorityTier, assert_policy_mutation
+from .authority import (
+    AuthorityTier,
+    PURPOSE_STRATEGIC_INTENT_SUBTYPES,
+    assert_policy_mutation,
+    assert_strategic_intent_replacement,
+)
 from .cadence import Trigger, TriggerLedger
 from .direction import DirectionService
 from .effective_policy import (
@@ -97,6 +102,14 @@ class BrainController:
             assert_policy_tightens(candidate, self._caller_policy, source="caller override")
         return candidate
 
+    def _validate_purpose_supersedes(self, scope: str, payload: Dict[str, Any], supersedes: Optional[str]) -> None:
+        subtype = payload.get("subtype")
+        if not supersedes or subtype not in PURPOSE_STRATEGIC_INTENT_SUBTYPES:
+            return
+        prior = self.store.load("intent", scope, supersedes)
+        if prior.payload.get("subtype") != subtype:
+            raise ValidationError("Purpose strategic supersession requires the same intent subtype")
+
     def create(
         self,
         kind: str,
@@ -113,6 +126,7 @@ class BrainController:
         assert_creation(kind, status, source)
         if kind == "intent":
             self._assert_intent_write_owner(scope, status, actor)
+            self._validate_purpose_supersedes(scope, payload, supersedes)
         if kind == "policy":
             self._validate_policy_change(scope, payload)
             if self.store.list("policy", scope, {"ACTIVE"}):
@@ -171,6 +185,8 @@ class BrainController:
         obj = self.store.load(kind, scope, object_id)
         if kind == "intent":
             self._assert_intent_write_owner(scope, target, actor)
+            if target == "SUPERSEDED" and obj.payload.get("subtype") in PURPOSE_STRATEGIC_INTENT_SUBTYPES:
+                assert_strategic_intent_replacement(source)
         assert_transition(kind, obj.status, target, source)
         if kind == "initiative" and target in {"ACCEPTED", "ACTIVE"} and obj.status not in self.ACTIVE_INITIATIVE_STATES:
             self._assert_initiative_capacity(scope, exclude_id=obj.id)
