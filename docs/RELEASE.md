@@ -35,6 +35,14 @@ CI must pass:
 
 The package smoke test must install the built wheel rather than using editable mode, invoke the installed `ai-verse-brain` entry point, run `install -> setup -> status -> doctor -> update`, verify the installation marker, and prove the public lifecycle works from the artifact.
 
+## Component release descriptor handoff
+
+`release/component-release.json` is the owner-local release record. Its gate is `.github/workflows/release-descriptor.yml`, and the designated native workflow is `.github/workflows/ci.yml` (`CI`).
+
+For an `accepted` descriptor, the gate must find a successful native workflow run whose `head_sha` equals `descriptor.revision` exactly. Do not substitute current branch health, a later commit, or a latest-success result. Missing, inaccessible, malformed, mismatched, or unsuccessful evidence fails closed. A pinned accepted revision remains valid after later metadata-only maintainer commits unless component code or the designated native workflow contract changes.
+
+This is owner-local acceptance only. It does not qualify the AI-Verse Distribution current component set and it is not a member feature-release record. Distribution qualification and member release records are separate authorities.
+
 ## Manual release gate
 
 Before tagging:
