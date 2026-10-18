@@ -29,6 +29,7 @@ from .policy import BrainPolicy
 from .progress import ProgressTracker
 from .state_machine import assert_creation, assert_transition
 from .storage import ObjectStore, StorageLayout
+from .validation import workspace_link_scope
 from .strategy_revision import StrategyRevisionService
 
 
@@ -127,6 +128,8 @@ class BrainController:
         if kind == "intent":
             self._assert_intent_write_owner(scope, status, actor)
             self._validate_purpose_supersedes(scope, payload, supersedes)
+            if payload.get("workspace_links") or payload.get("workspace_link_operations"):
+                raise ValidationError("workspace links must use the Brain link_workspace_intent owner API")
         if kind == "policy":
             self._validate_policy_change(scope, payload)
             if self.store.list("policy", scope, {"ACTIVE"}):
@@ -248,35 +251,57 @@ class BrainController:
             raise ValidationError("only a current operator intent may be linked")
         payload = dict(obj.payload)
         raw_operations = payload.get("workspace_link_operations", [])
-        if not isinstance(raw_operations, list) or any(
+        if not isinstance(raw_operations, list) or len(raw_operations) > 128 or any(
             not isinstance(item, dict) or set(item) != {"id", "action", "workspace_scope", "evidence_ref"}
             for item in raw_operations
         ):
             raise ValidationError("operator intent workspace link operation metadata is invalid")
         operations = list(raw_operations)
+        raw_links = payload.get("workspace_links", [])
+        if not isinstance(raw_links, list) or len(raw_links) > 32:
+            raise ValidationError("operator intent workspace link metadata is invalid")
+        link_scopes = [workspace_link_scope(item) for item in raw_links]
+        if len(link_scopes) != len(set(link_scopes)):
+            raise ValidationError("operator intent workspace link scopes are duplicated")
+        for legacy in raw_links:
+            if isinstance(legacy, dict):
+                legacy_operation = {
+                    "id": legacy["operation_id"], "action": "add",
+                    "workspace_scope": workspace_link_scope(legacy),
+                    "evidence_ref": legacy["source_refs"][0],
+                }
+                existing = next((item for item in operations if item["id"] == legacy_operation["id"]), None)
+                if existing is None:
+                    operations.append(legacy_operation)
+                elif existing != legacy_operation:
+                    raise ValidationError("legacy workspace link operation conflicts with Brain history")
         prior = next((item for item in operations if item["id"] == operation_id), None)
         if prior is not None:
             if (prior["action"] != action or prior["workspace_scope"] != workspace_scope
                     or prior["evidence_ref"] != evidence_ref):
                 raise ValidationError("operation_id was already used for a different workspace link request")
             return obj
+        if len(operations) > 128:
+            raise ValidationError("operator intent workspace link operation limit reached (128)")
         if obj.revision != expected_revision:
             raise ValidationError("workspace intent link revision conflict")
 
-        raw_links = payload.get("workspace_links", [])
-        if not isinstance(raw_links, list) or any(not isinstance(item, str) for item in raw_links):
-            raise ValidationError("operator intent workspace link metadata is invalid")
         links = list(raw_links)
+        removed_refs = []
         if action == "add":
-            if workspace_scope not in links:
+            if workspace_scope not in link_scopes:
                 if len(links) >= 32:
                     raise ValidationError("operator intent workspace link limit reached (32)")
                 links.append(workspace_scope)
-        elif workspace_scope in links:
-            links.remove(workspace_scope)
+        else:
+            for item in links:
+                if workspace_link_scope(item) == workspace_scope and isinstance(item, dict):
+                    removed_refs.extend(item["source_refs"])
+            links = [item for item in links if workspace_link_scope(item) != workspace_scope]
 
         payload["workspace_links"] = links
         operations.append({"id": operation_id, "action": action, "workspace_scope": workspace_scope, "evidence_ref": evidence_ref})
+        obj.source_refs = list(dict.fromkeys([*obj.source_refs, *removed_refs]))
         payload["workspace_link_operations"] = operations[-128:]
         obj.payload = payload
         obj.updated_by = "user:workspace-link"
