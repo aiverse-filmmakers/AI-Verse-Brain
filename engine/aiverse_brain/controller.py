@@ -250,7 +250,7 @@ class BrainController:
         raw_operations = payload.get("workspace_link_operations", [])
         if not isinstance(raw_operations, list) or any(
             not isinstance(item, dict) or set(item) != {"id", "action", "workspace_scope", "evidence_ref"}
-            for item in operations
+            for item in raw_operations
         ):
             raise ValidationError("operator intent workspace link operation metadata is invalid")
         operations = list(raw_operations)
