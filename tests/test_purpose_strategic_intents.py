@@ -305,5 +305,23 @@ class BrainWorkspaceIntentLinkTests(unittest.TestCase):
             )
 
 
+
+class WorkspaceIntentLinkOwnerBoundaryTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.controller = BrainController(self.temp.name)
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def test_create_cannot_bypass_workspace_link_owner_api(self):
+        with self.assertRaises(ValidationError):
+            self.controller.create(
+                "intent", "operator", "CONFIRMED",
+                {"subtype": "goal", "statement": "No direct link", "workspace_links": ["workspace:alpha"]},
+                source=AuthorityTier.EXPLICIT_USER, actor="user:test",
+            )
+
+
 if __name__ == "__main__":
     unittest.main()
