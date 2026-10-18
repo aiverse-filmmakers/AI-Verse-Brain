@@ -60,12 +60,16 @@ class PurposeWorkspaceLinkSnapshotTests(unittest.TestCase):
             controller = BrainController(root)
             goal = controller.create(
                 "intent", "operator", "CONFIRMED",
-                {"subtype": "goal", "statement": "Protect creative time",
-                 "workspace_links": ["workspace:alpha", "workspace:beta"],
-                 "workspace_link_operations": [
-                     {"id": "op-secret-beta", "action": "add", "workspace_scope": "workspace:beta",
-                      "evidence_ref": "turn:private"}]},
+                {"subtype": "goal", "statement": "Protect creative time"},
                 source=AuthorityTier.EXPLICIT_USER, actor="user:test",
+            )
+            goal = controller.link_workspace_intent(
+                goal.id, "workspace:alpha", expected_revision=goal.revision,
+                operation_id="op-alpha", evidence_ref="turn:alpha",
+            )
+            goal = controller.link_workspace_intent(
+                goal.id, "workspace:beta", expected_revision=goal.revision,
+                operation_id="op-beta", evidence_ref="turn:beta",
             )
             snapshot = build_purpose_snapshot(controller, "workspace:alpha")
             linked = snapshot["linked_operator_intents"][0]
@@ -83,9 +87,12 @@ class PurposeWorkspaceLinkSnapshotTests(unittest.TestCase):
             controller = BrainController(root)
             goal = controller.create(
                 "intent", "operator", "CONFIRMED",
-                {"subtype": "goal", "statement": "Protect creative time",
-                 "workspace_links": ["workspace:alpha"]},
+                {"subtype": "goal", "statement": "Protect creative time"},
                 source=AuthorityTier.EXPLICIT_USER, actor="user:test",
+            )
+            goal = controller.link_workspace_intent(
+                goal.id, "workspace:alpha", expected_revision=goal.revision,
+                operation_id="op-alpha", evidence_ref="turn:alpha",
             )
             original_owner = controller.direction_owner
             controller.direction_owner = lambda scope: "os" if scope == "workspace:alpha" else original_owner(scope)
@@ -94,3 +101,61 @@ class PurposeWorkspaceLinkSnapshotTests(unittest.TestCase):
             self.assertEqual(snapshot["status"], "unavailable")
             self.assertEqual(snapshot["linked_operator_intents"][0]["id"], goal.id)
             self.assertEqual(snapshot["strategic_objects"]["intents"], [])
+
+
+class LegacyWorkspaceLinkCompatibilityTests(unittest.TestCase):
+    def test_legacy_local_link_is_read_and_removed_only_by_explicit_owner_api(self):
+        with tempfile.TemporaryDirectory() as root:
+            controller = BrainController(root)
+            goal = controller.create(
+                "intent", "operator", "CONFIRMED",
+                {"subtype": "goal", "statement": "Protect creative time"},
+                source=AuthorityTier.EXPLICIT_USER, actor="user:test",
+            )
+            legacy_ref = "codex://turn/legacy-alpha-evidence"
+            other_ref = "codex://turn/legacy-beta-evidence"
+            def legacy_link(scope, ref, operation):
+                return {
+                    "scope": scope, "relation": "executes",
+                    "canonical_ref": {
+                        "owner": "ai-verse-os", "scope": scope,
+                        "kind": "current-context", "id": "active",
+                    },
+                    "source_refs": [ref], "operation_id": operation,
+                }
+            goal.payload["workspace_links"] = [
+                legacy_link("workspace:alpha", legacy_ref, "legacy-link-alpha"),
+                legacy_link("workspace:beta", other_ref, "legacy-link-beta"),
+            ]
+            goal.source_refs = [legacy_ref, other_ref]
+            goal = controller.store.save(goal, expected_revision=goal.revision)
+            before = build_purpose_snapshot(controller, "workspace:alpha")
+            self.assertEqual(before["linked_operator_intents"][0]["id"], goal.id)
+            self.assertEqual(before["linked_operator_intents"][0]["linked_to_scope"], "workspace:alpha")
+            self.assertNotIn("workspace_links", before["linked_operator_intents"][0]["payload"])
+            self.assertNotIn(other_ref, json.dumps(before["linked_operator_intents"][0]))
+            self.assertNotIn(legacy_ref, json.dumps(before["linked_operator_intents"][0]))
+
+            removed = controller.unlink_workspace_intent(
+                goal.id, "workspace:alpha", expected_revision=goal.revision,
+                operation_id="unlink-alpha", evidence_ref="codex://turn/remove-evidence",
+            )
+            self.assertEqual(
+                [link["scope"] for link in removed.payload["workspace_links"]],
+                ["workspace:beta"],
+            )
+            self.assertIn(legacy_ref, removed.source_refs)
+            self.assertEqual(
+                build_purpose_snapshot(controller, "workspace:alpha")["linked_operator_intents"],
+                [],
+            )
+            self.assertEqual(
+                [item["id"] for item in removed.payload["workspace_link_operations"]],
+                ["legacy-link-alpha", "legacy-link-beta", "unlink-alpha"],
+            )
+            retry = controller.link_workspace_intent(
+                goal.id, "workspace:alpha", expected_revision=goal.revision,
+                operation_id="legacy-link-alpha", evidence_ref=legacy_ref,
+            )
+            self.assertEqual(retry.revision, removed.revision)
+            self.assertEqual(retry.payload["workspace_links"], [])
