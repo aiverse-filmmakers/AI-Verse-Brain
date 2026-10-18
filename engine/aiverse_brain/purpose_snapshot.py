@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Dict, Iterable, List, Optional, TYPE_CHECKING
 
 from .models import BrainObject, Scope
+from .validation import workspace_link_scope
 
 if TYPE_CHECKING:
     from .controller import BrainController
@@ -46,6 +47,19 @@ def _object_view(obj: BrainObject) -> Dict[str, Any]:
     payload = dict(obj.payload)
     payload.pop("workspace_links", None)
     payload.pop("workspace_link_operations", None)
+    private_link_refs = set()
+    links = obj.payload.get("workspace_links", [])
+    if isinstance(links, list):
+        for link in links:
+            if isinstance(link, dict) and isinstance(link.get("source_refs"), list):
+                private_link_refs.update(ref for ref in link["source_refs"] if isinstance(ref, str))
+    operations = obj.payload.get("workspace_link_operations", [])
+    if isinstance(operations, list):
+        for operation in operations:
+            if isinstance(operation, dict) and isinstance(operation.get("evidence_ref"), str):
+                private_link_refs.add(operation["evidence_ref"])
+    source_refs = [ref for ref in obj.source_refs if ref not in private_link_refs]
+    evidence_refs = [item.to_dict() for item in obj.evidence_refs if item.ref not in private_link_refs]
     return {
         "id": obj.id,
         "kind": obj.kind,
@@ -56,8 +70,8 @@ def _object_view(obj: BrainObject) -> Dict[str, Any]:
         "created_at": obj.created_at,
         "updated_at": obj.updated_at,
         "canonical_ref": canonical_ref(obj),
-        "source_refs": list(obj.source_refs),
-        "evidence_refs": [item.to_dict() for item in obj.evidence_refs],
+        "source_refs": source_refs,
+        "evidence_refs": evidence_refs,
         "payload": payload,
     }
 
@@ -134,10 +148,18 @@ def _linked_operator_intents(controller: "BrainController", scope: str) -> tuple
     malformed = False
     for intent in intents:
         links = intent.payload.get("workspace_links", [])
-        if not isinstance(links, list) or any(not isinstance(item, str) for item in links):
+        if not isinstance(links, list):
             malformed = True
             continue
-        if scope not in links:
+        try:
+            linked_scopes = [workspace_link_scope(item) for item in links]
+        except Exception:
+            malformed = True
+            continue
+        if len(linked_scopes) != len(set(linked_scopes)):
+            malformed = True
+            continue
+        if scope not in linked_scopes:
             continue
         view = _object_view(intent)
         view["payload"].pop("workspace_links", None)

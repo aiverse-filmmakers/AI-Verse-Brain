@@ -70,6 +70,36 @@ def _require_nonnegative_int(kind: str, payload: Dict[str, Any], field: str) -> 
         raise ValidationError(f"{kind}.{field} must be an integer >= 0")
 
 
+def workspace_link_scope(item: Any) -> str:
+    """Return the target scope of a current or exact pre-contract local link record."""
+    if isinstance(item, str):
+        scope = Scope(item)
+        if scope.is_operator:
+            raise ValidationError("intent workspace links require workspace scopes")
+        return item
+    required = {"scope", "relation", "canonical_ref", "source_refs", "operation_id"}
+    if not isinstance(item, dict) or set(item) != required:
+        raise ValidationError("intent workspace link has an invalid shape")
+    scope = Scope(item["scope"])
+    if scope.is_operator:
+        raise ValidationError("intent workspace links require workspace scopes")
+    if item["relation"] != "executes":
+        raise ValidationError("legacy intent workspace link relation is invalid")
+    canonical_ref = item["canonical_ref"]
+    if not isinstance(canonical_ref, dict) or canonical_ref != {
+        "owner": "ai-verse-os", "scope": item["scope"], "kind": "current-context", "id": "active"
+    }:
+        raise ValidationError("legacy intent workspace link reference is invalid")
+    refs = item["source_refs"]
+    if (not isinstance(refs, list) or len(refs) != 1 or not isinstance(refs[0], str)
+            or not refs[0].strip() or len(refs[0]) > 2048):
+        raise ValidationError("legacy intent workspace link requires one bounded source reference")
+    operation_id = item["operation_id"]
+    if not isinstance(operation_id, str) or not operation_id.strip() or len(operation_id) > 128:
+        raise ValidationError("legacy intent workspace link operation id is invalid")
+    return item["scope"]
+
+
 def validate_payload(kind: str, payload: Dict[str, Any]) -> None:
     if kind not in _REQUIRED:
         raise ValidationError(f"unknown payload kind: {kind}")
@@ -95,12 +125,10 @@ def validate_payload(kind: str, payload: Dict[str, Any]) -> None:
     if kind == "intent":
         links = payload.get("workspace_links", [])
         if not isinstance(links, list) or len(links) > 32:
-            raise ValidationError("intent.workspace_links must be a list of at most 32 scopes")
-        for scope in links:
-            if not isinstance(scope, str) or Scope(scope).is_operator:
-                raise ValidationError("intent.workspace_links entries must be workspace scopes")
-        if len(links) != len(set(links)):
-            raise ValidationError("intent.workspace_links must be unique")
+            raise ValidationError("intent.workspace_links must be a list of at most 32 links")
+        link_scopes = [workspace_link_scope(item) for item in links]
+        if len(link_scopes) != len(set(link_scopes)):
+            raise ValidationError("intent.workspace_links must have unique workspace scopes")
         operations = payload.get("workspace_link_operations", [])
         if not isinstance(operations, list) or len(operations) > 128:
             raise ValidationError("intent.workspace_link_operations must be a list of at most 128 records")
