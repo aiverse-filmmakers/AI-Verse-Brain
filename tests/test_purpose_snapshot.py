@@ -158,4 +158,7 @@ class LegacyWorkspaceLinkCompatibilityTests(unittest.TestCase):
                 operation_id="legacy-link-alpha", evidence_ref=legacy_ref,
             )
             self.assertEqual(retry.revision, removed.revision)
-            self.assertEqual(retry.payload["workspace_links"], [])
+            self.assertEqual(
+                [link["scope"] for link in retry.payload["workspace_links"]],
+                ["workspace:beta"],
+            )
