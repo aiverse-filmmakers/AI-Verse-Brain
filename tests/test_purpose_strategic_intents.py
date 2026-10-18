@@ -2,7 +2,7 @@ import tempfile
 import unittest
 
 from aiverse_brain import AuthorityTier, BrainController, build_purpose_snapshot
-from aiverse_brain.errors import AuthorityError, ValidationError
+from aiverse_brain.errors import AuthorityError, ScopeError, ValidationError
 from aiverse_brain.models import BrainObject
 from aiverse_brain.validation import validate_payload
 
@@ -220,6 +220,89 @@ class PurposeStrategicIntentTests(unittest.TestCase):
         ids = {item["id"] for item in alpha_snapshot["strategic_objects"]["intents"]}
         self.assertIn(alpha.id, ids)
         self.assertNotIn(beta.id, ids)
+
+
+
+class BrainWorkspaceIntentLinkTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.controller = BrainController(self.temp.name)
+        self.intent = _create_confirmed(self.controller, "mission")
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def test_explicit_link_and_unlink_preserve_evidence_and_revision(self):
+        linked = self.controller.link_workspace_intent(
+            self.intent.id, "workspace:alpha", expected_revision=self.intent.revision,
+            operation_id="link-alpha-1", evidence_ref="codex://turn/user-evidence",
+        )
+        self.assertEqual(linked.revision, self.intent.revision + 1)
+        self.assertEqual(linked.payload["workspace_links"], ["workspace:alpha"])
+        self.assertEqual(linked.payload["workspace_link_operations"][0]["evidence_ref"], "codex://turn/user-evidence")
+        removed = self.controller.unlink_workspace_intent(
+            self.intent.id, "workspace:alpha", expected_revision=linked.revision,
+            operation_id="unlink-alpha-1", evidence_ref="codex://turn/remove-evidence",
+        )
+        self.assertEqual(removed.payload["workspace_links"], [])
+        self.assertEqual(removed.revision, linked.revision + 1)
+
+    def test_link_retry_is_idempotent_and_operation_id_reuse_is_rejected(self):
+        first = self.controller.link_workspace_intent(
+            self.intent.id, "workspace:alpha", expected_revision=self.intent.revision,
+            operation_id="link-alpha-1", evidence_ref="codex://turn/user-evidence",
+        )
+        retry = self.controller.link_workspace_intent(
+            self.intent.id, "workspace:alpha", expected_revision=self.intent.revision,
+            operation_id="link-alpha-1", evidence_ref="codex://turn/user-evidence",
+        )
+        self.assertEqual(retry.revision, first.revision)
+        self.assertEqual(retry.payload["workspace_links"], ["workspace:alpha"])
+        with self.assertRaises(ValidationError):
+            self.controller.link_workspace_intent(
+                self.intent.id, "workspace:alpha", expected_revision=self.intent.revision,
+                operation_id="link-alpha-1", evidence_ref="codex://turn/different-evidence",
+            )
+        with self.assertRaises(ValidationError):
+            self.controller.link_workspace_intent(
+                self.intent.id, "workspace:beta", expected_revision=self.intent.revision,
+                operation_id="link-alpha-1", evidence_ref="codex://turn/user-evidence",
+            )
+
+    def test_link_requires_explicit_authority_and_current_intent(self):
+        with self.assertRaises(AuthorityError):
+            self.controller.link_workspace_intent(
+                self.intent.id, "workspace:alpha", expected_revision=self.intent.revision,
+                operation_id="link-alpha-1", evidence_ref="codex://turn/evidence",
+                source=AuthorityTier.VERIFIED_EVIDENCE,
+            )
+        draft = self.controller.create(
+            "intent", "operator", "DRAFT",
+            {"subtype": "goal", "statement": "Draft goal"},
+            source=AuthorityTier.TEMPORARY_HYPOTHESIS, actor="brain:test",
+        )
+        with self.assertRaises(ValidationError):
+            self.controller.link_workspace_intent(
+                draft.id, "workspace:alpha", expected_revision=draft.revision,
+                operation_id="link-draft", evidence_ref="codex://turn/evidence",
+            )
+
+    def test_link_rejects_invalid_scope_stale_revision(self):
+        for scope in ("operator", "workspace:Invalid"):
+            with self.assertRaises((ValidationError, ScopeError)):
+                self.controller.link_workspace_intent(
+                    self.intent.id, scope, expected_revision=self.intent.revision,
+                    operation_id="bad-scope", evidence_ref="codex://turn/evidence",
+                )
+        linked = self.controller.link_workspace_intent(
+            self.intent.id, "workspace:alpha", expected_revision=self.intent.revision,
+            operation_id="link-alpha-1", evidence_ref="codex://turn/evidence",
+        )
+        with self.assertRaises(ValidationError):
+            self.controller.unlink_workspace_intent(
+                self.intent.id, "workspace:alpha", expected_revision=self.intent.revision,
+                operation_id="unlink-stale", evidence_ref="codex://turn/remove",
+            )
 
 
 if __name__ == "__main__":

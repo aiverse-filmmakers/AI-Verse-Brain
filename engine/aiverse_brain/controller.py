@@ -17,7 +17,7 @@ from .effective_policy import (
     load_effective_policy,
     validate_policy_payload_for_scope,
 )
-from .errors import PolicyViolation, ValidationError
+from .errors import AuthorityError, PolicyViolation, ValidationError
 from .evaluator import EvaluationService
 from .freshness import FreshnessService
 from .goal import GoalService
@@ -220,6 +220,87 @@ class BrainController:
         saved = self.store.save(obj, expected_revision=expected)
         self.refresh_policy(scope)
         return saved
+
+    def _mutate_workspace_intent_link(
+        self, object_id: str, workspace_scope: str, *, action: str,
+        expected_revision: int, operation_id: str, evidence_ref: str,
+        source: AuthorityTier,
+    ) -> BrainObject:
+        """Owner API for explicit, visibility-only operator-intent/workspace links."""
+        if source != AuthorityTier.EXPLICIT_USER:
+            raise AuthorityError("explicit user authority required: workspace intent link")
+        if action not in {"add", "remove"}:
+            raise ValidationError("workspace intent link action must be add or remove")
+        target = Scope(workspace_scope)
+        if target.is_operator:
+            raise ValidationError("workspace intent links require a workspace scope")
+        if not isinstance(operation_id, str) or not operation_id.strip() or len(operation_id) > 128:
+            raise ValidationError("operation_id must be 1..128 non-whitespace characters")
+        if not isinstance(evidence_ref, str) or not evidence_ref.strip() or len(evidence_ref) > 2048:
+            raise ValidationError("exact user evidence reference is required")
+        if not isinstance(expected_revision, int) or isinstance(expected_revision, bool) or expected_revision < 0:
+            raise ValidationError("expected_revision must be an integer >= 0")
+        if self.direction_owner("operator") != "brain":
+            raise ValidationError("operator direction must be Brain-owned before linking intents")
+
+        obj = self.store.load("intent", "operator", object_id)
+        if obj.status not in {"CONFIRMED", "ACTIVE", "PAUSED"}:
+            raise ValidationError("only a current operator intent may be linked")
+        payload = dict(obj.payload)
+        raw_operations = payload.get("workspace_link_operations", [])
+        if not isinstance(raw_operations, list) or any(
+            not isinstance(item, dict) or set(item) != {"id", "action", "workspace_scope", "evidence_ref"}
+            for item in raw_operations
+        ):
+            raise ValidationError("operator intent workspace link operation metadata is invalid")
+        operations = list(raw_operations)
+        prior = next((item for item in operations if item["id"] == operation_id), None)
+        if prior is not None:
+            if (prior["action"] != action or prior["workspace_scope"] != workspace_scope
+                    or prior["evidence_ref"] != evidence_ref):
+                raise ValidationError("operation_id was already used for a different workspace link request")
+            return obj
+        if obj.revision != expected_revision:
+            raise ValidationError("workspace intent link revision conflict")
+
+        raw_links = payload.get("workspace_links", [])
+        if not isinstance(raw_links, list) or any(not isinstance(item, str) for item in raw_links):
+            raise ValidationError("operator intent workspace link metadata is invalid")
+        links = list(raw_links)
+        if action == "add":
+            if workspace_scope not in links:
+                if len(links) >= 32:
+                    raise ValidationError("operator intent workspace link limit reached (32)")
+                links.append(workspace_scope)
+        elif workspace_scope in links:
+            links.remove(workspace_scope)
+
+        payload["workspace_links"] = links
+        operations.append({"id": operation_id, "action": action, "workspace_scope": workspace_scope, "evidence_ref": evidence_ref})
+        payload["workspace_link_operations"] = operations[-128:]
+        obj.payload = payload
+        obj.updated_by = "user:workspace-link"
+        return self.store.save(obj, expected_revision=expected_revision)
+
+    def link_workspace_intent(
+        self, object_id: str, workspace_scope: str, *, expected_revision: int,
+        operation_id: str, evidence_ref: str,
+        source: AuthorityTier = AuthorityTier.EXPLICIT_USER,
+    ) -> BrainObject:
+        return self._mutate_workspace_intent_link(
+            object_id, workspace_scope, action="add", expected_revision=expected_revision,
+            operation_id=operation_id, evidence_ref=evidence_ref, source=source,
+        )
+
+    def unlink_workspace_intent(
+        self, object_id: str, workspace_scope: str, *, expected_revision: int,
+        operation_id: str, evidence_ref: str,
+        source: AuthorityTier = AuthorityTier.EXPLICIT_USER,
+    ) -> BrainObject:
+        return self._mutate_workspace_intent_link(
+            object_id, workspace_scope, action="remove", expected_revision=expected_revision,
+            operation_id=operation_id, evidence_ref=evidence_ref, source=source,
+        )
 
     def orientation(self, scope: str) -> Orientation:
         Scope(scope)

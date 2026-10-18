@@ -94,6 +94,14 @@ Purpose uses Brain's existing object identity and revision model; it does not cr
 
 Purpose resolves current strategic truth from canonical lifecycle state plus exact observed revision. It never chooses a winner merely because one object has a higher revision, newer timestamp, or a `supersedes` pointer whose counterpart was not canonically superseded.
 
+## Explicit operator-intent workspace links
+
+The Brain owner API provides link and unlink operations for the single canonical operator Intent. Each request names the intent, exact workspace scope, expected revision, unique operation ID, exact user evidence reference, and explicit-user authority. Only current operator intents may be linked, and Brain must own operator direction.
+
+Links provide visibility and context only. They do not confirm proposed intent, alter status, transfer workspace direction, authorize actions, or create a workspace intent. Adds and removals use revision compare-and-swap. A retry with the same operation ID, action, and workspace returns the current canonical object without writing again; reusing an operation ID for a different request is rejected. User-decision evidence is retained with the intent. Each intent allows at most 32 workspace links and keeps 128 recent operation IDs for retry safety.
+
+For a workspace read, Purpose may expose matching current operator intents in the separate linked_operator_intents field. The projection removes all workspace-link and operation metadata, so it never reveals links to other workspaces. Workspace-owned direction and existing workspace relationships remain unchanged. Missing or malformed metadata is omitted and reported through a bounded read status; no automatic linking or migration occurs.
+
 ## No silent migration / reinterpretation
 
 Adding the new subtype vocabulary changes what future canonical writes may express; it does not change the meaning of any existing record.

@@ -1,7 +1,7 @@
 from typing import Any, Dict
 
 from .errors import ValidationError
-from .models import parse_timestamp
+from .models import Scope, parse_timestamp
 
 _REQUIRED = {
     "intent": ("subtype", "statement"),
@@ -91,6 +91,34 @@ def validate_payload(kind: str, payload: Dict[str, Any]) -> None:
 
     if kind == "opportunity" and payload.get("expires_at"):
         parse_timestamp(payload["expires_at"], field_name="opportunity.expires_at")
+
+    if kind == "intent":
+        links = payload.get("workspace_links", [])
+        if not isinstance(links, list) or len(links) > 32:
+            raise ValidationError("intent.workspace_links must be a list of at most 32 scopes")
+        for scope in links:
+            if not isinstance(scope, str) or Scope(scope).is_operator:
+                raise ValidationError("intent.workspace_links entries must be workspace scopes")
+        if len(links) != len(set(links)):
+            raise ValidationError("intent.workspace_links must be unique")
+        operations = payload.get("workspace_link_operations", [])
+        if not isinstance(operations, list) or len(operations) > 128:
+            raise ValidationError("intent.workspace_link_operations must be a list of at most 128 records")
+        operation_ids = []
+        for item in operations:
+            if not isinstance(item, dict) or set(item) != {"id", "action", "workspace_scope", "evidence_ref"}:
+                raise ValidationError("intent workspace link operation has an invalid shape")
+            if not isinstance(item["id"], str) or not item["id"].strip() or len(item["id"]) > 128:
+                raise ValidationError("intent workspace link operation id must be 1..128 characters")
+            if item["action"] not in {"add", "remove"}:
+                raise ValidationError("intent workspace link operation action must be add or remove")
+            if not isinstance(item["workspace_scope"], str) or Scope(item["workspace_scope"]).is_operator:
+                raise ValidationError("intent workspace link operation requires a workspace scope")
+            if not isinstance(item["evidence_ref"], str) or not item["evidence_ref"].strip() or len(item["evidence_ref"]) > 2048:
+                raise ValidationError("intent workspace link operation evidence_ref must be non-empty and bounded")
+            operation_ids.append(item["id"])
+        if len(operation_ids) != len(set(operation_ids)):
+            raise ValidationError("intent workspace link operation ids must be unique")
 
     if kind == "initiative":
         if not isinstance(payload.get("score_components"), dict):
