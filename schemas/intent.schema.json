@@ -8,7 +8,24 @@
     "statement": {"type": "string", "minLength": 1},
     "priority": {"type": ["string", "number", "null"]},
     "target_date": {"type": ["string", "null"]},
-    "success_refs": {"type": "array", "items": {"type": "string"}}
+    "success_refs": {"type": "array", "items": {"type": "string"}},
+    "workspace_links": {
+      "type": "array", "maxItems": 32, "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^workspace:[a-z0-9][a-z0-9-]{0,127}$"}
+    },
+    "workspace_link_operations": {
+      "type": "array", "maxItems": 128,
+      "items": {
+        "type": "object", "required": ["id", "action", "workspace_scope", "evidence_ref"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1, "maxLength": 128},
+          "action": {"enum": ["add", "remove"]},
+          "workspace_scope": {"type": "string", "pattern": "^workspace:[a-z0-9][a-z0-9-]{0,127}$"},
+          "evidence_ref": {"type": "string", "minLength": 1, "maxLength": 2048}
+        },
+        "additionalProperties": false
+      }
+    }
   },
   "additionalProperties": true
 }
