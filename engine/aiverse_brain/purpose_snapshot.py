@@ -43,6 +43,9 @@ def semantic_kind(obj: BrainObject) -> Optional[str]:
 
 
 def _object_view(obj: BrainObject) -> Dict[str, Any]:
+    payload = dict(obj.payload)
+    payload.pop("workspace_links", None)
+    payload.pop("workspace_link_operations", None)
     return {
         "id": obj.id,
         "kind": obj.kind,
@@ -55,7 +58,7 @@ def _object_view(obj: BrainObject) -> Dict[str, Any]:
         "canonical_ref": canonical_ref(obj),
         "source_refs": list(obj.source_refs),
         "evidence_refs": [item.to_dict() for item in obj.evidence_refs],
-        "payload": dict(obj.payload),
+        "payload": payload,
     }
 
 
@@ -116,9 +119,40 @@ def _safe_list(controller: "BrainController", kind: str, scope: str, statuses: s
         return [], {"state": "unavailable", "reason": f"{kind}_read_failed"}
 
 
+def _linked_operator_intents(controller: "BrainController", scope: str) -> tuple[List[Dict[str, Any]], Dict[str, str]]:
+    if Scope(scope).is_operator:
+        return [], {"state": "not_applicable"}
+    try:
+        if controller.direction_owner("operator") != "brain":
+            return [], {"state": "unavailable", "reason": "operator_direction_not_brain_owned"}
+    except Exception:
+        return [], {"state": "unavailable", "reason": "operator_direction_unavailable"}
+    intents, state = _safe_list(controller, "intent", "operator", _CURRENT_INTENT_STATUSES)
+    if state["state"] != "ok":
+        return [], {"state": "unavailable", "reason": "operator_intents_read_failed"}
+    linked = []
+    malformed = False
+    for intent in intents:
+        links = intent.payload.get("workspace_links", [])
+        if not isinstance(links, list) or any(not isinstance(item, str) for item in links):
+            malformed = True
+            continue
+        if scope not in links:
+            continue
+        view = _object_view(intent)
+        view["payload"].pop("workspace_links", None)
+        view["payload"].pop("workspace_link_operations", None)
+        view["linked_to_scope"] = scope
+        linked.append(view)
+    if malformed:
+        return linked, {"state": "partial", "reason": "workspace_link_metadata_invalid"}
+    return linked, {"state": "ok"}
+
+
 def build_purpose_snapshot(controller: "BrainController", scope: str) -> Dict[str, Any]:
     """Build the read-only Brain strategic projection used by Purpose Context."""
     Scope(scope)
+    linked_operator_intents, linked_state = _linked_operator_intents(controller, scope)
     try:
         direction_owner = controller.direction_owner(scope)
     except Exception:
@@ -132,6 +166,8 @@ def build_purpose_snapshot(controller: "BrainController", scope: str) -> Dict[st
             "strategic_objects": {"intents": [], "gaps": [], "initiatives": []},
             "relationships": [],
             "relationship_rejections": [],
+            "linked_operator_intents": linked_operator_intents,
+            "linked_operator_intents_state": linked_state,
         }
 
     if direction_owner != "brain":
@@ -145,6 +181,8 @@ def build_purpose_snapshot(controller: "BrainController", scope: str) -> Dict[st
             "strategic_objects": {"intents": [], "gaps": [], "initiatives": []},
             "relationships": [],
             "relationship_rejections": [],
+            "linked_operator_intents": linked_operator_intents,
+            "linked_operator_intents_state": linked_state,
         }
 
     intents, intent_state = _safe_list(controller, "intent", scope, _CURRENT_INTENT_STATUSES)
@@ -152,11 +190,13 @@ def build_purpose_snapshot(controller: "BrainController", scope: str) -> Dict[st
     initiatives, initiative_state = _safe_list(controller, "initiative", scope, _CURRENT_INITIATIVE_STATUSES)
     read_states = {"intents": intent_state, "gaps": gap_state, "initiatives": initiative_state}
     unavailable_count = sum(1 for item in read_states.values() if item["state"] != "ok")
+    if linked_state["state"] == "unavailable":
+        unavailable_count += 1
 
-    if unavailable_count == 3:
+    if unavailable_count >= 3:
         status = "unavailable"
         reason = "strategic_reads_unavailable"
-    elif unavailable_count:
+    elif unavailable_count or linked_state["state"] == "partial":
         status = "partial"
         reason = "strategic_reads_partial"
     else:
@@ -177,6 +217,8 @@ def build_purpose_snapshot(controller: "BrainController", scope: str) -> Dict[st
         },
         "relationships": relationships,
         "relationship_rejections": relationship_rejections,
+        "linked_operator_intents": linked_operator_intents,
+        "linked_operator_intents_state": linked_state,
     }
     if reason is not None:
         result["reason"] = reason
