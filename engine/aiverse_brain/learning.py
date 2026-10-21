@@ -25,7 +25,7 @@ _SKILLS_ROUTE_FIELDS = {
     "candidate_id", "scope", "suggested_owner", "kind", "summary", "skill_id",
     "target_skill_id", "evidence_refs", "success_signal", "failure_signal", "risk",
     "confidence", "created_at", "requested_capabilities", "requested_dependencies",
-    "requires_connection", "requires_credential", "source_ownership",
+    "requires_connection", "requires_credential", "source_ownership", "portability",
 }
 _FORBIDDEN_LEARNING_FIELDS = {
     "raw_transcript", "credentials", "secrets", "private_key", "raw_tool_output",
@@ -340,6 +340,14 @@ def admit_skills_learning_candidate(
     if not isinstance(created_at, str) or not created_at.strip() or len(created_at) > 100:
         raise ValidationError("learning candidate created_at must be a bounded timestamp string")
 
+    portability = data.get("portability")
+    if portability is not None:
+        fields = {"reusable", "contains_workspace_data", "contains_credentials", "has_workspace_dependencies"}
+        if not isinstance(portability, dict) or set(portability) != fields or any(type(v) is not bool for v in portability.values()):
+            raise ValidationError("portability must contain exact boolean declarations")
+        if portability["contains_credentials"]:
+            raise ValidationError("credentials cannot be routed into a skill")
+
     skills_scope: Dict[str, str] = {"aiverse_scope": bound_scope}
     if source_ownership == "workspace_local":
         if not bound_scope.startswith("workspace:"):
@@ -363,6 +371,8 @@ def admit_skills_learning_candidate(
         "requires_credential": bool(data.get("requires_credential", False)),
         "source_ownership": source_ownership,
     }
+    if portability is not None:
+        envelope["portability"] = dict(portability)
     if kind == "create":
         envelope["skill_id"] = skill_id
     else:
