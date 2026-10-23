@@ -30,6 +30,17 @@ class LearningCandidateGateTests(unittest.TestCase):
         value.update(changes)
         return value
 
+    def test_explicit_portability_is_preserved_without_inference(self):
+        portable = {"reusable": True, "contains_workspace_data": False, "contains_credentials": False, "has_workspace_dependencies": False}
+        admitted = admit_skills_learning_candidate(self.candidate(portability=portable), bound_scope="workspace:alpha", substantial_task=True)
+        self.assertEqual(admitted["envelope"]["portability"], portable)
+        legacy = admit_skills_learning_candidate(self.candidate(), bound_scope="workspace:alpha", substantial_task=True)
+        self.assertNotIn("portability", legacy["envelope"])
+        with self.assertRaises(ValidationError):
+            admit_skills_learning_candidate(self.candidate(portability={**portable, "contains_credentials": True}), bound_scope="workspace:alpha", substantial_task=True)
+        with self.assertRaises(ValidationError):
+            admit_skills_learning_candidate(self.candidate(portability={**portable, "reusable": 1}), bound_scope="workspace:alpha", substantial_task=True)
+
     def test_substantial_create_routes_to_skills(self):
         result = admit_skills_learning_candidate(
             self.candidate(),
