@@ -1,8 +1,8 @@
 {
   "schema_version": "ai-verse.component-release/v1",
   "component_id": "ai-verse-brain",
-  "version": "0.1.0-beta.3.dev1",
-  "revision": "f746806e4361c2b1cd67ee97810071cc86db7b9a",
+  "version": "0.1.0-beta.3.dev2",
+  "revision": "7e6f7a7e8a3d541815bc7f65c11dca7824c35d8f",
   "release_status": "accepted",
   "package": {
     "repository": "aiverse-filmmakers/AI-Verse-Brain",
@@ -57,18 +57,18 @@
       {
         "kind": "owner-native-ci",
         "status": "pass",
-        "revision": "f746806e4361c2b1cd67ee97810071cc86db7b9a",
-        "run_id": "39172075659",
-        "url": "https://github.com/aiverse-filmmakers/AI-Verse-Brain/actions/runs/39172075659"
+        "revision": "7e6f7a7e8a3d541815bc7f65c11dca7824c35d8f",
+        "run_id": "39903370916",
+        "url": "https://github.com/aiverse-filmmakers/AI-Verse-Brain/actions/runs/39903370916"
       }
     ],
     "acceptance": [
       {
         "kind": "owner-local-native-workflow-acceptance",
         "status": "pass",
-        "revision": "f746806e4361c2b1cd67ee97810071cc86db7b9a",
-        "run_id": "39172075652",
-        "url": "https://github.com/aiverse-filmmakers/AI-Verse-Brain/actions/runs/39172075652"
+        "revision": "7e6f7a7e8a3d541815bc7f65c11dca7824c35d8f",
+        "run_id": "39903370916",
+        "url": "https://github.com/aiverse-filmmakers/AI-Verse-Brain/actions/runs/39903370916"
       }
     ]
   },
