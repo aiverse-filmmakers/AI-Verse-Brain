@@ -183,6 +183,27 @@ ai-verse-brain goal . complete --scope operator --goal-id <id> --expected-versio
 
 Goal completion cannot be inferred from resource exhaustion. Deterministic verification gates and bound evidence outrank model opinion. Goal state does not grant tools, connections, scheduler authority or permission expansion.
 
+Strategic purpose has a separate owner API. `BrainController.intents.read(scope)` returns the exact-scope current intents only when Brain owns direction. `BrainController.intents.capture(...)` records a direct user declaration as confirmed/active, an inferred candidate as proposed, or an explicit correction against the exact same-scope intent revision. Corrections preserve existing visibility-only workspace links and use an idempotent operation ID.
+
+The selected trusted host must authenticate the original user evidence before passing `AuthorityTier.EXPLICIT_USER`; the Brain service enforces direction ownership, intent lifecycle, optimistic revision checks, concurrency and replay safety, but it does not inspect runtime transcripts. Example:
+
+```python
+from aiverse_brain import AuthorityTier, BrainController
+
+brain = BrainController("/path/to/AI-Verse-OS")
+snapshot = brain.intents.read("operator")
+result = brain.intents.capture(
+    "operator",
+    subtype="goal",
+    statement="Ship the verified Core capability",
+    operation_id="host-session-123-user-message-4",
+    evidence_ref="host://session-123/user-message-4",
+    source=AuthorityTier.EXPLICIT_USER,
+)
+```
+
+An inferred candidate uses `source=AuthorityTier.TEMPORARY_HYPOTHESIS` and remains `PROPOSED`. A correction supplies `supersedes` with the ID returned by `intents.read` and that exact object's `expected_revision`; stale corrections fail closed.
+
 ## Self-learning owner boundary
 
 Brain may emit an inspectable improvement candidate containing the suggested owner, operation, evidence references, risk, confidence and evaluation criteria. Brain does not write Skill package bytes, general Memory, Data state or Automation jobs directly. Those durable mutations are routed through the selected host to the canonical owner and require a stable owner receipt.
