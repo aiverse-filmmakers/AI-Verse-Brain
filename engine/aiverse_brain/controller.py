@@ -21,6 +21,7 @@ from .errors import AuthorityError, PolicyViolation, ValidationError
 from .evaluator import EvaluationService
 from .freshness import FreshnessService
 from .goal import GoalService
+from .intent_owner import IntentOwnerService
 from .improvement import ImprovementCandidateService
 from .learning import LearningService, assert_learning_transition, assert_strategy_activation
 from .models import BrainObject, EvidenceRef, Scope
@@ -62,6 +63,7 @@ class BrainController:
         self.freshness = FreshnessService(self)
         self.learning = LearningService(self)
         self.goals = GoalService(self)
+        self.intents = IntentOwnerService(self)
         self.improvements = ImprovementCandidateService(self)
         self.strategy_revisions = StrategyRevisionService(self)
 

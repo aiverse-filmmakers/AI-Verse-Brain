@@ -15,6 +15,7 @@ from .cadence_hooks import render_cadence_hooks
 from .cognition import CognitionProposal, CognitionPurpose, CognitionRequest, validate_proposal
 from .controller import BrainController
 from .goal import GoalMutationResult, GoalService, GoalVerdict
+from .intent_owner import IntentOwnerService
 from .improvement import ImprovementCandidateEnvelope, ImprovementCandidateService
 from .direction_ownership import (
     DirectionHandoverPlan,
@@ -63,6 +64,7 @@ __all__ = [
     "JSONSubprocessBridge", "adapter_doctor",
     "BrainController", "BrainObject", "EvidenceRef", "Scope",
     "GoalService", "GoalVerdict", "GoalMutationResult",
+    "IntentOwnerService",
     "ImprovementCandidateEnvelope", "ImprovementCandidateService",
     "StrategyRevisionService", "StrategyRestorationResult",
     "CognitionProposal", "CognitionPurpose", "CognitionRequest", "validate_proposal",
