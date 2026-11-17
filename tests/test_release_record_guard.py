@@ -161,6 +161,30 @@ class ReleaseRecordGuardTests(unittest.TestCase):
         self.assertFalse(guard.strict_requested(False, {}))
         self.assertFalse(guard.strict_requested(False, {"RELEASE_GUARD_STRICT": "0"}))
 
+    def test_git_missing_is_reported_not_raised(self):
+        import os
+        repo, sha = self.make_repo()
+        self.put_record(repo, record(sha))
+        old = os.environ["PATH"]
+        os.environ["PATH"] = str(repo / "nowhere")
+        try:
+            problems, _ = guard.check(repo)
+        finally:
+            os.environ["PATH"] = old
+        self.assertTrue(any("git could not be run" in p or "does not exist" in p for p in problems))
+
+    def test_main_swallows_crash_unless_strict(self):
+        import contextlib
+        import io
+        import os
+        from unittest import mock
+        repo, _ = self.make_repo()
+        with mock.patch.object(guard, "check", side_effect=RuntimeError("boom")):
+            for env, want in (({}, 0), ({"RELEASE_GUARD_STRICT": "1"}, 1)):
+                with mock.patch.dict(os.environ, env), contextlib.redirect_stdout(io.StringIO()) as out:
+                    self.assertEqual(guard.main([str(repo)]), want)
+                self.assertIn("::", out.getvalue())
+
     def test_version_form_conversion(self):
         self.assertEqual(guard.to_pep440("0.1.0-beta.3.dev3"), "0.1.0b3.dev3")
         self.assertEqual(guard.to_pep440("1.2.3"), "1.2.3")

@@ -1,6 +1,7 @@
 """Release record guard.
 
-Fails when release/component-release.json and the code it points at drift apart.
+Warns when release/component-release.json and the code it points at drift apart
+(fails only in strict mode).
 The record names an accepted commit ("revision") and a version. This script reads
 the version files AT THAT COMMIT with git show and compares them to the record.
 
@@ -11,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -23,9 +25,12 @@ SCHEMA = "ai-verse.component-release/v1"
 
 
 def git(repo, *args):
-    proc = subprocess.run(
-        ["git", "-C", str(repo), *args], capture_output=True, text=True, encoding="utf-8"
-    )
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(repo), *args], capture_output=True, text=True, encoding="utf-8"
+        )
+    except OSError as exc:
+        return 127, "", f"git could not be run ({exc})"
     return proc.returncode, proc.stdout, proc.stderr
 
 
@@ -158,9 +163,6 @@ def strict_requested(args_strict, env):
 
 def run(repo, strict, env=None):
     """Print results. Returns the exit code: nonzero only in strict mode with problems."""
-    import os
-    import sys as _sys
-
     env = os.environ if env is None else env
     problems, warnings = check(repo)
     for w in warnings:
@@ -193,8 +195,13 @@ def main(argv=None):
     parser.add_argument("--strict", action="store_true",
                         help="exit 1 when problems are found (also RELEASE_GUARD_STRICT=1)")
     args = parser.parse_args(argv)
-    import os
-    return run(args.repo, strict_requested(args.strict, os.environ))
+    strict = strict_requested(args.strict, os.environ)
+    try:
+        return run(args.repo, strict, os.environ)
+    except Exception as exc:  # the guard must never crash a build in warn mode
+        kind = "error" if strict else "warning"
+        print(f"::{kind} title=Release record guard crashed::The guard could not finish ({exc!r}).")
+        return 1 if strict else 0
 
 
 if __name__ == "__main__":
