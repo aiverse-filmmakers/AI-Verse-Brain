@@ -171,7 +171,19 @@ class ReleaseRecordGuardTests(unittest.TestCase):
             problems, _ = guard.check(repo)
         finally:
             os.environ["PATH"] = old
-        self.assertTrue(any("git could not be run" in p or "does not exist" in p for p in problems))
+        self.assertTrue(any("git could not be run" in p for p in problems))
+        self.assertFalse(any("does not exist" in p for p in problems))
+
+    def test_non_utf8_version_file_still_reports_other_findings(self):
+        repo, _ = self.make_repo(code_version="0.1.0-beta.3.dev0")
+        (repo / "engine/aiverse_brain/_version.py").write_bytes(b'__version__ = "\xff\xfe"\n')
+        git(repo, "add", "-A")
+        git(repo, "commit", "-qm", "binary")
+        sha = git(repo, "rev-parse", "HEAD")
+        self.put_record(repo, record(sha))
+        problems, _ = guard.check(repo)
+        self.assertTrue(any("BRAIN.yaml" in p for p in problems))
+        self.assertTrue(any("_version.py" in p for p in problems))
 
     def test_main_swallows_crash_unless_strict(self):
         import contextlib
