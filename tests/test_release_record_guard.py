@@ -121,6 +121,46 @@ class ReleaseRecordGuardTests(unittest.TestCase):
             git(repo, "commit", "-q", "--allow-empty", "-m", f"c{i}")
         self.assertEqual(guard.check(repo)[1], [])
 
+    def run_mode(self, repo, strict):
+        import contextlib
+        import io
+        buf = io.StringIO()
+        summary = Path(repo) / "summary.md"
+        with contextlib.redirect_stdout(buf):
+            code = guard.run(repo, strict, env={"GITHUB_STEP_SUMMARY": str(summary)})
+        return code, buf.getvalue(), summary.read_text(encoding="utf-8")
+
+    def test_warn_mode_exits_zero_but_is_loud(self):
+        repo, sha = self.make_repo(code_version="0.1.0-beta.3.dev0")
+        self.put_record(repo, record(sha, ci="7", acceptance="7"))
+        code, out, summary = self.run_mode(repo, False)
+        self.assertEqual(code, 0)
+        self.assertIn("::warning title=Release record mismatch::", out)
+        self.assertIn("listed twice", summary)
+        self.assertIn("BRAIN.yaml", summary)
+
+    def test_strict_mode_exits_one(self):
+        repo, sha = self.make_repo(code_version="0.1.0-beta.3.dev0")
+        self.put_record(repo, record(sha))
+        self.assertEqual(self.run_mode(repo, True)[0], 1)
+
+    def test_strict_mode_passes_when_clean(self):
+        repo, sha = self.make_repo()
+        self.put_record(repo, record(sha))
+        self.assertEqual(self.run_mode(repo, True)[0], 0)
+
+    def test_malformed_json_only_warns_by_default(self):
+        repo, _ = self.make_repo()
+        write(repo, guard.RECORD_PATH, "{nope")
+        self.assertEqual(self.run_mode(repo, False)[0], 0)
+        self.assertEqual(self.run_mode(repo, True)[0], 1)
+
+    def test_strict_flag_and_env(self):
+        self.assertTrue(guard.strict_requested(True, {}))
+        self.assertTrue(guard.strict_requested(False, {"RELEASE_GUARD_STRICT": "1"}))
+        self.assertFalse(guard.strict_requested(False, {}))
+        self.assertFalse(guard.strict_requested(False, {"RELEASE_GUARD_STRICT": "0"}))
+
     def test_version_form_conversion(self):
         self.assertEqual(guard.to_pep440("0.1.0-beta.3.dev3"), "0.1.0b3.dev3")
         self.assertEqual(guard.to_pep440("1.2.3"), "1.2.3")

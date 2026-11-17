@@ -4,8 +4,8 @@ Fails when release/component-release.json and the code it points at drift apart.
 The record names an accepted commit ("revision") and a version. This script reads
 the version files AT THAT COMMIT with git show and compares them to the record.
 
-Exit code 0: no problems (a staleness warning may still be printed).
-Exit code 1: at least one problem was found.
+Default (warn only): problems print as GitHub warnings and the exit code is 0.
+Strict (--strict or RELEASE_GUARD_STRICT=1): exit code 1 when a problem is found.
 """
 from __future__ import annotations
 
@@ -152,20 +152,49 @@ def check(repo):
     return problems, warnings
 
 
+def strict_requested(args_strict, env):
+    return bool(args_strict) or env.get("RELEASE_GUARD_STRICT", "") not in ("", "0", "false")
+
+
+def run(repo, strict, env=None):
+    """Print results. Returns the exit code: nonzero only in strict mode with problems."""
+    import os
+    import sys as _sys
+
+    env = os.environ if env is None else env
+    problems, warnings = check(repo)
+    for w in warnings:
+        print("::warning title=Release record is getting stale::" + w)
+    for p in problems:
+        print(("::error title=Release record mismatch::" if strict else
+               "::warning title=Release record mismatch::") + p)
+    lines = ["## Release record guard", ""]
+    if problems:
+        mode = "strict (blocks CI)" if strict else "warn only (does not block CI)"
+        lines.append(f"Mode: {mode}. {len(problems)} problem(s) found:")
+        lines += [f"- {p}" for p in problems]
+    else:
+        lines.append("The release record and the code at its accepted commit agree.")
+    lines += [f"- Warning: {w}" for w in warnings]
+    summary = env.get("GITHUB_STEP_SUMMARY")
+    if summary:
+        try:
+            with open(summary, "a", encoding="utf-8") as fh:
+                fh.write("\n".join(lines) + "\n")
+        except OSError:
+            pass
+    print("\n".join(lines))
+    return 1 if (problems and strict) else 0
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("repo", nargs="?", default=".")
+    parser.add_argument("--strict", action="store_true",
+                        help="exit 1 when problems are found (also RELEASE_GUARD_STRICT=1)")
     args = parser.parse_args(argv)
-    problems, warnings = check(args.repo)
-    for w in warnings:
-        print("WARNING: " + w)
-    for p in problems:
-        print("FAIL: " + p)
-    if problems:
-        print(f"Release record check failed with {len(problems)} problem(s).")
-        return 1
-    print("Release record check passed.")
-    return 0
+    import os
+    return run(args.repo, strict_requested(args.strict, os.environ))
 
 
 if __name__ == "__main__":

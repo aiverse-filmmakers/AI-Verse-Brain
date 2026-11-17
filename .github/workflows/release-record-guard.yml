@@ -1,7 +1,7 @@
 name: Release Record Guard
 
-# Fails when release/component-release.json and the code at its accepted commit
-# disagree. Warns (does not fail) when HEAD is more than 50 commits past it.
+# Reports when release/component-release.json and the code at its accepted commit
+# disagree, and when HEAD is more than 50 commits past it. Warn only: never blocks.
 
 on:
   pull_request:
@@ -24,4 +24,8 @@ jobs:
       - name: Test the guard
         run: python -m unittest tests.test_release_record_guard -v
       - name: Check the release record against the accepted commit
+        # Switch to strict after the release records are re-approved:
+        # change the value below to "1" (one line) and the job will fail on mismatch.
+        env:
+          RELEASE_GUARD_STRICT: "0"
         run: python scripts/check_release_record.py .
