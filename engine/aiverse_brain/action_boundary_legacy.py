@@ -239,7 +239,7 @@ class ActionLedger:
         path = self._path(request)
         fd, temp_name = tempfile.mkstemp(prefix=".action.", suffix=".tmp", dir=str(directory))
         try:
-            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
                 json.dump(data, handle, indent=2, sort_keys=True)
                 handle.write("\n")
                 handle.flush()

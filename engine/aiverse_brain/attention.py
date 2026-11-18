@@ -69,7 +69,7 @@ class AttentionLedger:
         path = self._path(scope)
         fd, temp_name = tempfile.mkstemp(prefix=".attention-", suffix=".tmp", dir=str(self.directory))
         try:
-            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
                 json.dump(data, handle, indent=2, sort_keys=True)
                 handle.write("\n")
                 handle.flush()
