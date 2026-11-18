@@ -216,7 +216,7 @@ class GoalService:
         }
         fd, tmp = tempfile.mkstemp(prefix=".goal-op-", suffix=".tmp", dir=str(path.parent))
         try:
-            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
                 json.dump(payload, handle, indent=2, sort_keys=True)
                 handle.write("\n"); handle.flush(); os.fsync(handle.fileno())
             os.replace(tmp, path)

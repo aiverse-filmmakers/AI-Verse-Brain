@@ -73,7 +73,7 @@ class RuntimeKeyLock:
                     continue
                 raise LockConflict(f"runtime key is currently locked: {key}")
             else:
-                with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
                     handle.write(payload)
                     handle.flush()
                     os.fsync(handle.fileno())

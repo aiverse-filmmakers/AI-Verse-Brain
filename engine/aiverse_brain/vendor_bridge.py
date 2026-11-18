@@ -210,6 +210,7 @@ def invoke_vendor(options: VendorOptions, payload: Dict[str, Any]) -> Any:
             command,
             input=prompt,
             text=True,
+            encoding="utf-8",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             shell=False,

@@ -185,7 +185,7 @@ def run(repo, strict, env=None):
     summary = env.get("GITHUB_STEP_SUMMARY")
     if summary:
         try:
-            with open(summary, "a", encoding="utf-8") as fh:
+            with open(summary, "a", encoding="utf-8", newline="\n") as fh:
                 fh.write("\n".join(lines) + "\n")
         except OSError:
             pass

@@ -18,7 +18,7 @@ DISPLAY = "0.1.0-beta.3.dev3"
 def git(repo, *args):
     out = subprocess.run(
         ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@example.com", *args],
-        check=True, capture_output=True, text=True,
+        check=True, capture_output=True, text=True, encoding="utf-8",
     )
     return out.stdout.strip()
 

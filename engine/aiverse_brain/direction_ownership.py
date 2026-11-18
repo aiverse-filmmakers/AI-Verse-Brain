@@ -76,7 +76,7 @@ def _atomic_json_write(root: Path, target: Path, data: Dict[str, Any]) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
     fd, temp_name = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".tmp", dir=str(target.parent))
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
             json.dump(data, handle, indent=2, sort_keys=True)
             handle.write("\n")
             handle.flush()
@@ -102,7 +102,7 @@ def _atomic_text_write(root: Path, boundary: Path, target: Path, text: str) -> N
         raise ValidationError("direction export target parent escapes its scope boundary")
     fd, temp_name = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".tmp", dir=str(target.parent))
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
             handle.write(text)
             handle.flush()
             os.fsync(handle.fileno())
@@ -623,7 +623,7 @@ class DirectionOwnershipService:
         text = "\n".join(body) + "\n"
         fd, temp_name = tempfile.mkstemp(prefix=f".{view.name}.", suffix=".tmp", dir=str(view.parent))
         try:
-            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
                 handle.write(text)
                 handle.flush()
                 os.fsync(handle.fileno())

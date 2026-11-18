@@ -22,6 +22,7 @@ def _make_dir_link(target: Path, link: Path) -> None:
             check=False,
             capture_output=True,
             text=True,
+            encoding="utf-8",
         )
         if completed.returncode != 0:
             raise RuntimeError(f"cannot create Windows junction: {completed.stderr or completed.stdout}")

@@ -145,7 +145,7 @@ class ObjectStore:
                     continue
                 raise LockConflict(f"object is currently locked: {obj.id}")
             else:
-                with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
                     handle.write(payload)
                     handle.flush()
                     os.fsync(handle.fileno())
@@ -189,7 +189,7 @@ class ObjectStore:
             data = json.dumps(obj.to_dict(), indent=2, sort_keys=True) + "\n"
             fd, temp_name = tempfile.mkstemp(prefix=f".{obj.id}.", suffix=".tmp", dir=str(path.parent))
             try:
-                with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
                     handle.write(data)
                     handle.flush()
                     os.fsync(handle.fileno())

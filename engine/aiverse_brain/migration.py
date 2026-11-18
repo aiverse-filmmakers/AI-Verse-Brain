@@ -125,7 +125,7 @@ def _atomic_marker_write(path: Path, data: Dict[str, Any]) -> None:
             os.chmod(temp_name, 0o600)
         except OSError:
             pass
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
             json.dump(data, handle, indent=2, sort_keys=True)
             handle.write("\n")
             handle.flush()

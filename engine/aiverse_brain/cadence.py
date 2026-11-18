@@ -69,7 +69,7 @@ class TriggerLedger:
             fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         except FileExistsError as exc:
             raise DuplicateTrigger(trigger.idempotency_key) from exc
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
             json.dump(payload, handle, indent=2, sort_keys=True)
         return path
 
@@ -80,7 +80,8 @@ class TriggerLedger:
         data["status"] = "completed"
         data["completed_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         temp = path.with_suffix(".tmp")
-        temp.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        with temp.open("w", encoding="utf-8", newline="\n") as handle:
+            handle.write(json.dumps(data, indent=2, sort_keys=True) + "\n")
         os.replace(str(temp), str(path))
 
     def recover_stale_claim(self, idempotency_key: str, *, minimum_age_seconds: int = 300) -> bool:

@@ -72,7 +72,7 @@ def _registry_lock(root: Path) -> Iterator[None]:
     except OSError as exc:
         raise ValidationError(f"cannot acquire AI-Verse extension registry lock: {exc}") from exc
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
             json.dump({"extension_id": BRAIN_EXTENSION_ID}, handle)
             handle.write("\n")
             handle.flush()
@@ -97,7 +97,7 @@ def _atomic_registry_write(root: Path, data: Dict[str, Any], expected_raw: Optio
             os.chmod(temp_name, 0o600)
         except OSError:
             pass
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
             json.dump(data, handle, indent=2, sort_keys=True)
             handle.write("\n")
             handle.flush()
