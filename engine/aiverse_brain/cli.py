@@ -29,6 +29,7 @@ from .onboarding import OnboardingService
 from .runtime import BrainRuntime
 from .tick_output import build_tick_summary
 from .vendor import vendor_bridge_config, vendor_reasoner
+from .write_gate import require_write_ready
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -140,6 +141,19 @@ def build_parser() -> argparse.ArgumentParser:
     tick.add_argument("--binary")
     tick.add_argument("--timeout", type=float, default=120.0)
     tick.add_argument("--env-name", action="append", default=[])
+
+    recover = sub.add_parser(
+        "recover-trigger",
+        help="free a trigger slot left claimed by a run that crashed (never clears a completed run)",
+    )
+    recover.add_argument("root", nargs="?", default=".")
+    recover.add_argument("--key", required=True, help="the idempotency key named in the DuplicateTrigger error")
+    recover.add_argument(
+        "--min-age-seconds",
+        type=int,
+        default=3600,
+        help="refuse claims younger than this, so a run still in progress is not freed (default 3600)",
+    )
 
     doctor = sub.add_parser("doctor", help="read-only host, installation, and Brain-state health checks")
     doctor.add_argument("root", nargs="?", default=".")
@@ -570,6 +584,28 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             )
             _print(_tick_summary(result, host_selection, runtime))
             return 0 if result.ok else 5
+
+        if args.command == "recover-trigger":
+            root = str(Path(args.root).resolve())
+            if read_installation_marker(root) is None:
+                _print({"ok": False, "error": "Brain is not initialized; run `ai-verse-brain init --apply` first"})
+                return 4
+            if args.min_age_seconds < 0:
+                raise ValidationError("--min-age-seconds must not be negative")
+            require_write_ready(root)
+            ledger = BrainController(root).trigger_ledger
+            before = ledger.claim_status(args.key)
+            recovered = ledger.recover_stale_claim(args.key, minimum_age_seconds=args.min_age_seconds)
+            if recovered:
+                reason = "freed a claim left by a run that did not finish"
+            elif before is None:
+                reason = "no receipt exists for this key"
+            elif before not in {"claimed", "unreadable"}:
+                reason = f"receipt is {before}; only unfinished claims can be freed"
+            else:
+                reason = f"claim is younger than {args.min_age_seconds} seconds; a run may still be active"
+            _print({"ok": recovered, "recovered": recovered, "key": args.key, "status_before": before, "reason": reason})
+            return 0 if recovered else 3
 
         if args.command == "doctor":
             report = lifecycle_doctor(str(Path(args.root)))
