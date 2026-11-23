@@ -29,6 +29,7 @@ from .onboarding import OnboardingService
 from .runtime import BrainRuntime
 from .tick_output import build_tick_summary
 from .vendor import vendor_bridge_config, vendor_reasoner
+from .write_gate import require_write_ready
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -150,8 +151,8 @@ def build_parser() -> argparse.ArgumentParser:
     recover.add_argument(
         "--min-age-seconds",
         type=int,
-        default=300,
-        help="refuse claims younger than this, so a run still in progress is not freed (default 300)",
+        default=3600,
+        help="refuse claims younger than this, so a run still in progress is not freed (default 3600)",
     )
 
     doctor = sub.add_parser("doctor", help="read-only host, installation, and Brain-state health checks")
@@ -591,6 +592,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 return 4
             if args.min_age_seconds < 0:
                 raise ValidationError("--min-age-seconds must not be negative")
+            require_write_ready(root)
             ledger = BrainController(root).trigger_ledger
             before = ledger.claim_status(args.key)
             recovered = ledger.recover_stale_claim(args.key, minimum_age_seconds=args.min_age_seconds)
@@ -598,7 +600,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 reason = "freed a claim left by a run that did not finish"
             elif before is None:
                 reason = "no receipt exists for this key"
-            elif before != "claimed":
+            elif before not in {"claimed", "unreadable"}:
                 reason = f"receipt is {before}; only unfinished claims can be freed"
             else:
                 reason = f"claim is younger than {args.min_age_seconds} seconds; a run may still be active"

@@ -32,13 +32,16 @@ class RecoverStuckTrigger(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def crash_after_claim(self, age_seconds=3600):
+    def crash_after_claim(self, age_seconds=7200):
         # What a crash leaves behind: a claimed receipt that was never completed.
         ledger = BrainController(self.root).trigger_ledger
+        path = ledger._path(self.trigger.idempotency_key)
+        if path.exists():
+            path.unlink()
         path = ledger.claim(self.trigger)
         past = time.time() - age_seconds
         os.utime(path, (past, past))
-        return ledger
+        return path
 
     def recover(self, *extra):
         out = io.StringIO()
@@ -73,6 +76,28 @@ class RecoverStuckTrigger(unittest.TestCase):
         self.assertNotEqual(rc, 0)
         self.assertEqual(data["status_before"], "claimed")
         self.assertIn("still be active", data["reason"])
+
+    def test_empty_or_damaged_receipt_from_a_crash_mid_claim_is_recoverable(self):
+        # claim() creates the file before writing it; a crash in between leaves junk.
+        for junk in ("", '{"status": "clai', "[1, 2]"):
+            with self.subTest(junk=junk):
+                path = self.crash_after_claim()
+                path.write_text(junk, encoding="utf-8")
+                past = time.time() - 7200
+                os.utime(path, (past, past))
+                with self.assertRaises(DuplicateTrigger) as caught:
+                    BrainController(self.root).run_trigger(self.trigger)
+                self.assertIn("recover-trigger", str(caught.exception))
+                rc, data = self.recover()
+                self.assertEqual(rc, 0, data)
+                self.assertEqual(data["status_before"], "unreadable")
+
+    def test_default_wait_protects_a_long_running_tick(self):
+        # A tick can take many minutes; a 20 minute old claim must not be freed by default.
+        self.crash_after_claim(age_seconds=1200)
+        rc, data = self.recover()
+        self.assertNotEqual(rc, 0)
+        self.assertFalse(data["recovered"])
 
     def test_unknown_key_reports_cleanly(self):
         rc, data = self.recover()

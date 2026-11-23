@@ -37,6 +37,12 @@ class Trigger:
             raise ValueError("idempotency_key is required")
 
 
+# Liveness is judged only by the receipt's age, and a tick with several reasoner
+# calls can take many minutes, so the default wait before a claim counts as
+# abandoned is one hour (FL-28 review).
+DEFAULT_STALE_CLAIM_SECONDS = 3600
+
+
 class TriggerLedger:
     """Disposable runtime ledger. It prevents duplicate ticks; it is not canonical intent state."""
 
@@ -71,12 +77,8 @@ class TriggerLedger:
             # A receipt still marked "claimed" means an earlier run crashed mid tick. Brain
             # never replays that automatically (it may have done part of the work), so the
             # error names the explicit recovery command instead of failing silently (FL-28).
-            status = None
-            try:
-                status = json.loads(path.read_text(encoding="utf-8")).get("status")
-            except (OSError, ValueError, AttributeError):
-                pass
-            if status == "claimed":
+            status = self._read_status(path)
+            if status in {"claimed", "unreadable"}:
                 raise DuplicateTrigger(
                     f"{trigger.idempotency_key}: an earlier run claimed this slot and did not finish. "
                     "If no Brain run is still active, free it with "
@@ -98,26 +100,44 @@ class TriggerLedger:
             handle.write(json.dumps(data, indent=2, sort_keys=True) + "\n")
         os.replace(str(temp), str(path))
 
-    def claim_status(self, idempotency_key: str) -> Optional[str]:
-        """Read only: "claimed", "completed", another recorded status, or None if absent."""
-        path = self._path(idempotency_key)
-        if not path.exists():
+    @staticmethod
+    def _read_status(path: Path) -> Optional[str]:
+        """Status of a receipt, None if absent, "unreadable" if empty or damaged.
+
+        claim() creates the file before writing it, so a crash in between leaves an
+        empty or partial receipt. That is an unfinished claim too and must be
+        recoverable rather than an error (FL-28 review).
+        """
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
             return None
-        data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return "unreadable"
+        if not isinstance(data, dict):
+            return "unreadable"
         return str(data.get("status"))
 
-    def recover_stale_claim(self, idempotency_key: str, *, minimum_age_seconds: int = 300) -> bool:
+    def claim_status(self, idempotency_key: str) -> Optional[str]:
+        """Read only: "claimed", "completed", "unreadable", another status, or None if absent."""
+        return self._read_status(self._path(idempotency_key))
+
+    def recover_stale_claim(self, idempotency_key: str, *, minimum_age_seconds: int = DEFAULT_STALE_CLAIM_SECONDS) -> bool:
         """Explicit recovery only. Completed receipts are never cleared by this method."""
         from .write_gate import require_write_ready
         require_write_ready(str(self.root))
         path = self._path(idempotency_key)
-        if not path.exists():
+        if self._read_status(path) not in {"claimed", "unreadable"}:
             return False
-        data = json.loads(path.read_text(encoding="utf-8"))
-        if data.get("status") != "claimed":
+        try:
+            age = time.time() - path.stat().st_mtime
+        except FileNotFoundError:
             return False
-        age = time.time() - path.stat().st_mtime
         if age < minimum_age_seconds:
+            return False
+        # Re-check right before removing, so a run that finished in the meantime
+        # (complete() replaces the file) keeps its completed receipt.
+        if self._read_status(path) not in {"claimed", "unreadable"}:
             return False
         path.unlink()
         return True
