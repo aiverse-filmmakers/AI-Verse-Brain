@@ -7,7 +7,7 @@ import json
 import os
 from pathlib import Path
 import time
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
 from .errors import DuplicateTrigger
@@ -68,6 +68,20 @@ class TriggerLedger:
         try:
             fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         except FileExistsError as exc:
+            # A receipt still marked "claimed" means an earlier run crashed mid tick. Brain
+            # never replays that automatically (it may have done part of the work), so the
+            # error names the explicit recovery command instead of failing silently (FL-28).
+            status = None
+            try:
+                status = json.loads(path.read_text(encoding="utf-8")).get("status")
+            except (OSError, ValueError, AttributeError):
+                pass
+            if status == "claimed":
+                raise DuplicateTrigger(
+                    f"{trigger.idempotency_key}: an earlier run claimed this slot and did not finish. "
+                    "If no Brain run is still active, free it with "
+                    f"`ai-verse-brain recover-trigger <root> --key {trigger.idempotency_key}`"
+                ) from exc
             raise DuplicateTrigger(trigger.idempotency_key) from exc
         with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
             json.dump(payload, handle, indent=2, sort_keys=True)
@@ -83,6 +97,14 @@ class TriggerLedger:
         with temp.open("w", encoding="utf-8", newline="\n") as handle:
             handle.write(json.dumps(data, indent=2, sort_keys=True) + "\n")
         os.replace(str(temp), str(path))
+
+    def claim_status(self, idempotency_key: str) -> Optional[str]:
+        """Read only: "claimed", "completed", another recorded status, or None if absent."""
+        path = self._path(idempotency_key)
+        if not path.exists():
+            return None
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return str(data.get("status"))
 
     def recover_stale_claim(self, idempotency_key: str, *, minimum_age_seconds: int = 300) -> bool:
         """Explicit recovery only. Completed receipts are never cleared by this method."""

@@ -124,52 +124,51 @@ class BrainRuntime:
         self._refresh_policy(trigger.scope.value)
         model_id = self._reasoner_id(reasoner)
         self.controller.trigger_ledger.claim(trigger)
-        try:
-            plan = self.planner.plan_unclaimed(trigger)
-            result = TickRunResult(
-                trigger_type=trigger.trigger_type,
-                scope=trigger.scope.value,
-                plan=plan,
-            )
-            assembler = ContextAssembler(self.controller, host)
+        # On a crash the receipt deliberately stays "claimed" (no automatic replay);
+        # `ai-verse-brain recover-trigger` frees it explicitly (FL-28).
+        plan = self.planner.plan_unclaimed(trigger)
+        result = TickRunResult(
+            trigger_type=trigger.trigger_type,
+            scope=trigger.scope.value,
+            plan=plan,
+        )
+        assembler = ContextAssembler(self.controller, host)
 
-            for request in plan.cognition_requests:
-                permitted = list(request.output_contract.get("proposal_kinds") or [])
-                if not permitted:
-                    continue
+        for request in plan.cognition_requests:
+            permitted = list(request.output_contract.get("proposal_kinds") or [])
+            if not permitted:
+                continue
+            try:
+                context = assembler.build(request)
+                raw = reasoner.reason(request.to_dict(), context.to_dict())
+                result.reasoner_calls += 1
+                proposals = parse_reasoner_output(request, raw, source_model=model_id)
+            except Exception as exc:
+                result.errors.append(RuntimeErrorRecord(
+                    stage="reasoner",
+                    request_id=request.request_id,
+                    error_type=type(exc).__name__,
+                    message=str(exc),
+                ))
+                continue
+
+            for index, proposal in enumerate(proposals):
                 try:
-                    context = assembler.build(request)
-                    raw = reasoner.reason(request.to_dict(), context.to_dict())
-                    result.reasoner_calls += 1
-                    proposals = parse_reasoner_output(request, raw, source_model=model_id)
+                    applied = self.applier.apply(request, proposal)
+                    result.applied.append(applied)
+                    surface = self._surface(applied, trigger=trigger, session_id=session_id)
+                    if surface is not None:
+                        result.surface_items.append(surface)
                 except Exception as exc:
                     result.errors.append(RuntimeErrorRecord(
-                        stage="reasoner",
+                        stage="proposal_application",
                         request_id=request.request_id,
+                        proposal_index=index,
                         error_type=type(exc).__name__,
                         message=str(exc),
                     ))
-                    continue
-
-                for index, proposal in enumerate(proposals):
-                    try:
-                        applied = self.applier.apply(request, proposal)
-                        result.applied.append(applied)
-                        surface = self._surface(applied, trigger=trigger, session_id=session_id)
-                        if surface is not None:
-                            result.surface_items.append(surface)
-                    except Exception as exc:
-                        result.errors.append(RuntimeErrorRecord(
-                            stage="proposal_application",
-                            request_id=request.request_id,
-                            proposal_index=index,
-                            error_type=type(exc).__name__,
-                            message=str(exc),
-                        ))
-            self.controller.trigger_ledger.complete(trigger)
-            return result
-        except Exception:
-            raise
+        self.controller.trigger_ledger.complete(trigger)
+        return result
 
     def execute_action(
         self,
